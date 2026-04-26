@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JMC Courtier</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏠</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#0d1f3c" />
+</head>
+<body>
+
+<!-- ── ÉCRAN DE CONNEXION ── -->
+<div id="loginScreen" style="display:none;position:fixed;inset:0;background:var(--navy);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:white;border-radius:16px;padding:40px 36px;width:90%;max-width:420px;box-shadow:0 24px 60px rgba(0,0,0,.4);text-align:center;">
+    <div style="width:56px;height:56px;background:#1a56db;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:1.6rem;margin:0 auto 16px;">🏠</div>
+    <div style="font-size:1.4rem;font-weight:800;color:#0d1f3c;margin-bottom:4px">JMC<span style="color:#f5a623">Courtier</span></div>
+    <div style="font-size:.82rem;color:#64748b;margin-bottom:28px">Connexion requise</div>
+    <div id="loginError" style="display:none;background:#fee2e2;color:#991b1b;border-radius:8px;padding:10px 14px;font-size:.85rem;margin-bottom:16px;text-align:left">
+      ❌ Identifiant ou mot de passe incorrect. (1/3)
+    </div>
+    <div style="text-align:left;margin-bottom:14px">
+      <label style="display:block;font-size:.82rem;font-weight:600;color:#1e293b;margin-bottom:5px">Identifiant</label>
+      <select id="loginUser"
+        style="width:100%;padding:10px 14px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:.95rem;outline:none;background:white;color:#1e293b;cursor:pointer;transition:border-color .15s"
+        onfocus="this.style.borderColor='#1a56db'" onblur="this.style.borderColor='#e2e8f0'">
+        <option value="CourtierJMC">CourtierJMC</option>
+      </select>
+    </div>
+    <div style="text-align:left;margin-bottom:24px">
+      <label style="display:block;font-size:.82rem;font-weight:600;color:#1e293b;margin-bottom:5px">Mot de passe</label>
+      <input type="password" id="loginPass" placeholder="••••••••"
+        style="width:100%;padding:10px 14px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:.95rem;outline:none;transition:border-color .15s"
+        onfocus="this.style.borderColor='#1a56db'" onblur="this.style.borderColor='#e2e8f0'"
+        onkeydown="if(event.key==='Enter')tryLogin()" />
+    </div>
+    <button id="loginBtn" onclick="tryLogin()"
+      style="width:100%;padding:12px;background:#1a56db;color:white;border:none;border-radius:10px;font-size:1rem;font-weight:700;cursor:pointer;transition:background .15s"
+      onmouseover="this.style.background='#1e429f'" onmouseout="this.style.background='#1a56db'">
+      Connexion →
+    </button>
+    <div style="margin-top:14px;text-align:center">
+      <button onclick="showForgotPassword()" style="background:none;border:none;color:#94a3b8;font-size:.8rem;cursor:pointer;text-decoration:underline">
+        Mot de passe oublié ?
+      </button>
+    </div>
+
+    <!-- Panneau mot de passe oublié -->
+    <div id="forgotPanel" style="display:none;margin-top:16px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:16px;text-align:left">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-weight:700;color:#0369a1;font-size:.88rem">📧 Réinitialisation du mot de passe</div>
+        <button onclick="document.getElementById('forgotPanel').style.display='none'" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:1rem;line-height:1;padding:2px">✕</button>
+      </div>
+      <div id="forgotMsg" style="font-size:.82rem;color:#334155;line-height:1.6"></div>
+      <button onclick="sendTempPassword()" id="forgotBtn"
+        style="margin-top:12px;width:100%;padding:9px;background:#0369a1;color:white;border:none;border-radius:8px;font-size:.85rem;font-weight:600;cursor:pointer">
+        📨 Envoyer un nouveau mot de passe par email
+      </button>
+    </div>
+
+    <p style="font-size:.75rem;color:#94a3b8;margin-top:16px">Application réservée à JMC Courtier</p>
+  </div>
+</div>
+
+<div class="app" id="app">
+
+  <!-- ── SIDEBAR ── -->
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div class="brand">
+        <div class="logo-icon">🏠</div>
+        <div class="brand-name">JMC<span>Courtier</span></div>
+      </div>
+    </div>
+    <div class="sidebar-agent">
+      <div class="agent-name" id="sidebarName">Jean Eveillard Cazeau</div>
+      <div class="agent-title">Courtier immobilier</div>
+    </div>
+    <nav class="nav">
+      <div class="nav-section">Principal</div>
+      <div class="nav-item active" data-page="dashboard">
+        <span class="icon">📊</span> Tableau de bord
+        <span class="nav-badge red" id="badgeWarnings" style="display:none">0</span>
+      </div>
+      <div class="nav-item" data-page="clients">
+        <span class="icon">👥</span> Clients
+        <span class="nav-badge" id="badgeClients">0</span>
+      </div>
+      <div class="nav-item" data-page="proprietes">
+        <span class="icon">🏠</span> Propriétés
+        <span class="nav-badge gold" id="badgeProps">0</span>
+      </div>
+      <div class="nav-section">Activité</div>
+      <div class="nav-item" data-page="visites">
+        <span class="icon">📅</span> Visites
+        <span class="nav-badge red" id="badgeVisites">0</span>
+      </div>
+      <div class="nav-item" data-page="taches">
+        <span class="icon">✅</span> Tâches & Rappels
+        <span class="nav-badge red" id="badgeTaches">0</span>
+      </div>
+      <div class="nav-item" data-page="transactions">
+        <span class="icon">💼</span> Transactions
+      </div>
+      <div class="nav-item" data-page="pipeline">
+        <span class="icon">🔀</span> Pipeline
+      </div>
+      <div class="nav-section">MLS & Réseau</div>
+      <div class="nav-item" data-page="centris">
+        <span class="icon">🔎</span> Recherche Centris
+      </div>
+      <div class="nav-item" data-page="messagerie">
+        <span class="icon">💬</span> Messagerie courtiers
+        <span class="nav-badge red" id="badgeMsgs">0</span>
+      </div>
+      <div class="nav-section">Outils</div>
+      <div class="nav-item" data-page="calculateurs">
+        <span class="icon">🧮</span> Calculateurs
+      </div>
+      <div class="nav-item" data-page="rapports">
+        <span class="icon">📄</span> Rapports
+      </div>
+      <div class="nav-item" data-page="parametres">
+        <span class="icon">⚙️</span> Paramètres
+      </div>
+    </nav>
+    <div style="padding:14px 20px;border-top:1px solid rgba(255,255,255,.07);">
+      <button onclick="logout()"
+        style="width:100%;padding:9px;background:rgba(239,68,68,.15);color:#fca5a5;border:1px solid rgba(239,68,68,.3);border-radius:8px;font-size:.82rem;font-weight:600;cursor:pointer;transition:all .15s"
+        onmouseover="this.style.background='rgba(239,68,68,.3)'" onmouseout="this.style.background='rgba(239,68,68,.15)'">
+        🚪 Déconnexion
+      </button>
+    </div>
+  </nav>
+
+  <!-- ── MAIN ── -->
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-toggle" id="menuToggle">☰</button>
+      <div class="topbar-title" id="topbarTitle">Tableau de bord</div>
+      <div class="topbar-search">
+        <span>🔍</span>
+        <input type="text" id="globalSearch" placeholder="Rechercher client, propriété..." />
+      </div>
+      <button class="btn btn-primary" id="topbarAction" onclick="handleTopbarAction()">
+        + Nouveau
+      </button>
+      <div id="syncIndicator" title="Statut de synchronisation"
+        style="font-size:.75rem;font-weight:600;color:#94a3b8;display:flex;align-items:center;gap:4px;white-space:nowrap">
+        ⬤ Local
+      </div>
+      <button class="btn btn-outline btn-sm" id="aiToggleBtn" onclick="toggleAI()">🤖 IA</button>
+    </div>
+
+    <div class="content" id="content">
+      <!-- contenu dynamique -->
+    </div>
+  </div>
+
+  <!-- ── AI PANEL ── -->
+  <div class="ai-panel" id="aiPanel">
+    <div class="ai-header">
+      <div>
+        <h3>🤖 Assistant IA</h3>
+        <div id="aiProviderBadge" style="font-size:.72rem;margin-top:2px;color:#fca5a5">○ Non configuré</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="aiConfigBtn" style="background:none;border:none;color:white;cursor:pointer;font-size:1rem;" title="Configurer API">⚙️</button>
+        <button onclick="toggleAI()" style="background:none;border:none;color:white;cursor:pointer;font-size:1.1rem;">✕</button>
+      </div>
+    </div>
+    <div id="aiConfigPanel" style="display:none;padding:14px;background:#0f172a;border-bottom:1px solid #1e293b;">
+      <select id="aiProvider" onchange="onProviderChange(this)" style="width:100%;padding:7px;margin-bottom:8px;border-radius:6px;border:1px solid #334155;background:#1e293b;color:white;font-size:.85rem;">
+        <option value="openrouter">OpenRouter — Gratuit ✅</option>
+        <option value="groq">Groq — Gratuit ✅</option>
+        <option value="anthropic">Anthropic (Claude) ⭐</option>
+        <option value="gemini">Google Gemini</option>
+        <option value="openai">OpenAI (ChatGPT)</option>
+      </select>
+      <input type="password" id="aiKeyInput" placeholder="sk-ant-... (Claude) ou AIza... (Gemini)" style="width:100%;padding:7px;border-radius:6px;border:1px solid #334155;background:#1e293b;color:white;margin-bottom:8px;font-size:.85rem;" />
+      <div style="display:flex;gap:6px;">
+        <button onclick="saveAIKey()" style="flex:1;padding:7px;background:#1a56db;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:.85rem;">Enregistrer</button>
+        <button onclick="clearAIKey()" style="padding:7px 10px;background:#7f1d1d;color:white;border:none;border-radius:6px;cursor:pointer;font-size:.85rem;">Effacer</button>
+      </div>
+    </div>
+    <div class="ai-quick" style="display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:8px 12px;">
+      <button class="ai-quick-btn" onclick="aiQuick('Rédige une description de propriété style Centris pour une maison unifamiliale à Terrebonne : 3 chambres, 2 salles de bain, garage double, sous-sol aménagé, piscine creusée, construit en 2010, 1 800 pi². Prix demandé : 575 000$.')">✍️ Description Centris</button>
+      <button class="ai-quick-btn" onclick="aiQuick('Rédige un email professionnel de suivi pour un client acheteur que j\'ai rencontré il y a 2 semaines. Il cherche une maison entre 400 000$ et 500 000$ à Terrebonne. Je veux maintenir le contact et lui présenter de nouvelles propriétés.')">📧 Email suivi client</button>
+      <button class="ai-quick-btn" onclick="aiQuick('Mon client veut faire une offre d\'achat sous le prix demandé. La propriété est à 499 000$, il veut offrir 475 000$. Donne-moi une stratégie de négociation complète : comment présenter l\'offre, les arguments à utiliser, et comment gérer une contre-offre.')">💡 Stratégie d\'offre</button>
+      <button class="ai-quick-btn" onclick="aiQuick('Quelles sont les 10 meilleures questions à poser lors d\'une première rencontre avec un acheteur pour bien le qualifier : budget, préapprobation, motivation, délai, critères, etc. ?')">❓ Qualifier acheteur</button>
+      <button class="ai-quick-btn" onclick="aiQuick('Prépare-moi un script d\'appel téléphonique professionnel pour prospecter un propriétaire dont le contrat d\'inscription expire bientôt avec un autre courtier. Je veux lui offrir mes services JMC Courtier.')">📞 Script prospection</button>
+      <button class="ai-quick-btn" onclick="aiQuick('Explique-moi les règles OACIQ sur les obligations d\'un courtier lors d\'une transaction : divulgation des vices, devoir de conseil, conflits d\'intérêts, double représentation.')">⚖️ Règles OACIQ</button>
+      <button class="ai-quick-btn" onclick="aiQuick('Rédige un post Facebook et Instagram accrocheur pour annoncer une nouvelle propriété mise en vente. Propriété : maison unifamiliale à Terrebonne, 4 chambres, piscine, 549 000$. Inclus des emojis et un appel à l\'action.')">📱 Post réseaux sociaux</button>
+      <button class="ai-quick-btn" onclick="aiQuick('Prépare une présentation de services (listing presentation) pour convaincre un vendeur de signer avec JMC Courtier plutôt qu\'avec un concurrent. Inclus : mes avantages, ma stratégie de mise en marché, les étapes du processus.')">🏆 Présentation vendeur</button>
+    </div>
+    <div class="ai-messages" id="aiMessages">
+      <div class="msg msg-ai">Bonjour ! Je suis votre assistant IA spécialisé en courtage immobilier québécois. Je connais votre CRM, vos clients et vos propriétés. Je peux rédiger des descriptions Centris, préparer vos emails, élaborer des stratégies de négociation, vous informer sur les règles OACIQ et bien plus. Comment puis-je vous aider ?</div>
+    </div>
+    <div class="ai-input-area">
+      <input type="text" id="aiInput" placeholder="Posez votre question..." onkeydown="if(event.key==='Enter') sendAI()" />
+      <button class="btn btn-primary btn-sm" onclick="sendAI()">➤</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── MODALS ── -->
+
+<!-- Modal Client -->
+<div class="modal-backdrop" id="modalClient">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modalClientTitle">Nouveau client</span>
+      <button class="modal-close" onclick="closeModal('modalClient')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Prénom *</label>
+          <input type="text" id="cPrenom" placeholder="Marie" maxlength="80" />
+        </div>
+        <div class="form-group">
+          <label>Nom *</label>
+          <input type="text" id="cNom" placeholder="Tremblay" maxlength="80" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Téléphone</label>
+          <input type="tel" id="cTel" placeholder="514 000-0000" maxlength="30" />
+        </div>
+        <div class="form-group">
+          <label>Courriel</label>
+          <input type="email" id="cEmail" placeholder="client@email.com" maxlength="120" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Type de client</label>
+          <select id="cType">
+            <option value="acheteur">Acheteur</option>
+            <option value="vendeur">Vendeur</option>
+            <option value="les-deux">Acheteur & Vendeur</option>
+            <option value="investisseur">Investisseur</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Statut</label>
+          <select id="cStatut">
+            <option value="actif">Actif</option>
+            <option value="prospect">Prospect</option>
+            <option value="inactif">Inactif</option>
+            <option value="ferme">Fermé</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Budget min ($)</label>
+          <input type="number" id="cBudgetMin" placeholder="300000" min="0" max="9999999" />
+        </div>
+        <div class="form-group">
+          <label>Budget max ($)</label>
+          <input type="number" id="cBudgetMax" placeholder="500000" min="0" max="9999999" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Quartiers / Villes recherchés</label>
+        <input type="text" id="cQuartiers" placeholder="Terrebonne, Repentigny, Laval..." maxlength="300" />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Source (comment vous a-t-il trouvé ?)</label>
+          <select id="cSource">
+            <option value="">— Non précisé —</option>
+            <option value="Référence">Référence client</option>
+            <option value="Panneau">Panneau / Affiche</option>
+            <option value="Internet">Site internet</option>
+            <option value="Réseaux sociaux">Réseaux sociaux</option>
+            <option value="Centris">Centris.ca</option>
+            <option value="Kijiji">Kijiji</option>
+            <option value="Collègue courtier">Collègue courtier</option>
+            <option value="Autre">Autre</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Préapprobation hypothécaire ($)</label>
+          <input type="number" id="cPreappro" placeholder="450000" min="0" max="9999999" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Date de prochain suivi</label>
+        <input type="date" id="cSuivi" />
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <textarea id="cNotes" placeholder="Préférences, critères importants..." maxlength="2000"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modalClient')">Annuler</button>
+      <button class="btn btn-primary" onclick="saveClient()">💾 Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Propriété -->
+<div class="modal-backdrop" id="modalProp">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <span class="modal-title" id="modalPropTitle">Nouvelle propriété</span>
+      <button class="modal-close" onclick="closeModal('modalProp')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Adresse *</label>
+          <input type="text" id="pAdresse" placeholder="123 Rue Principale" maxlength="150" />
+        </div>
+        <div class="form-group">
+          <label>Ville *</label>
+          <input type="text" id="pVille" placeholder="Terrebonne" maxlength="80" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Prix demandé ($) *</label>
+          <input type="number" id="pPrix" placeholder="450000" min="1" max="99999999" />
+        </div>
+        <div class="form-group">
+          <label>Type</label>
+          <select id="pType">
+            <option>Maison unifamiliale</option>
+            <option>Condo / Appartement</option>
+            <option>Duplex</option>
+            <option>Triplex</option>
+            <option>Maison de ville</option>
+            <option>Bungalow</option>
+            <option>Chalet</option>
+            <option>Terrain</option>
+            <option>Commercial</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Chambres</label>
+          <input type="number" id="pChambres" placeholder="3" min="0" max="50" />
+        </div>
+        <div class="form-group">
+          <label>Salles de bain</label>
+          <input type="number" id="pSDB" placeholder="2" min="0" max="20" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Superficie (pi²)</label>
+          <input type="number" id="pSuperficie" placeholder="1800" min="0" max="99999" />
+        </div>
+        <div class="form-group">
+          <label>Année de construction</label>
+          <input type="number" id="pAnnee" placeholder="2005" min="1800" max="2030" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Statut</label>
+          <select id="pStatut">
+            <option value="actif">Actif — En vente</option>
+            <option value="visite">Visites en cours</option>
+            <option value="offre">Offre reçue</option>
+            <option value="vendu">Vendu</option>
+            <option value="retiré">Retiré du marché</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Vendeur (client)</label>
+          <select id="pVendeur"><option value="">— Aucun lié —</option></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>No. Centris / MLS</label>
+          <input type="text" id="pCentrisNo" placeholder="12345678" maxlength="20" />
+        </div>
+        <div class="form-group">
+          <label>Taux co-courtage offert (%)</label>
+          <input type="number" id="pCoCourtage" placeholder="2.5" step="0.1" min="0" max="10" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Date d'inscription</label>
+          <input type="date" id="pDateInscription" />
+        </div>
+        <div class="form-group">
+          <label>Date d'expiration</label>
+          <input type="date" id="pDateExpiration" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Lien Centris (URL)</label>
+        <input type="url" id="pLienCentris" placeholder="https://www.centris.ca/fr/..." maxlength="300" />
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="pDescription" placeholder="Description de la propriété..." maxlength="2000"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Notes internes</label>
+        <textarea id="pNotes" placeholder="Notes privées, points d'attention..." style="min-height:60px;" maxlength="2000"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modalProp')">Annuler</button>
+      <button class="btn btn-primary" onclick="saveProp()">💾 Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Visite -->
+<div class="modal-backdrop" id="modalVisite">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Planifier une visite</span>
+      <button class="modal-close" onclick="closeModal('modalVisite')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Client *</label>
+        <select id="vClient"><option value="">— Sélectionner —</option></select>
+      </div>
+      <div class="form-group">
+        <label>Propriété *</label>
+        <select id="vProp"><option value="">— Sélectionner —</option></select>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Date *</label>
+          <input type="date" id="vDate" />
+        </div>
+        <div class="form-group">
+          <label>Heure</label>
+          <input type="time" id="vHeure" value="10:00" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <textarea id="vNotes" placeholder="Points à montrer, questions du client..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modalVisite')">Annuler</button>
+      <button class="btn btn-primary" onclick="saveVisite()">📅 Planifier</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Transaction -->
+<div class="modal-backdrop" id="modalTrans">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Nouvelle transaction</span>
+      <button class="modal-close" onclick="closeModal('modalTrans')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Propriété *</label>
+        <select id="tProp"><option value="">— Sélectionner —</option></select>
+      </div>
+      <div class="form-group">
+        <label>Acheteur *</label>
+        <select id="tAcheteur"><option value="">— Sélectionner —</option></select>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Prix d'offre ($) *</label>
+          <input type="number" id="tPrixOffre" placeholder="435000" min="1" max="99999999" />
+        </div>
+        <div class="form-group">
+          <label>Date d'offre</label>
+          <input type="date" id="tDateOffre" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Date de clôture</label>
+          <input type="date" id="tDateCloture" />
+        </div>
+        <div class="form-group">
+          <label>Statut</label>
+          <select id="tStatut">
+            <option value="offre">Offre soumise</option>
+            <option value="contre-offre">Contre-offre</option>
+            <option value="acceptee">Acceptée</option>
+            <option value="inspection">En inspection</option>
+            <option value="notaire">Chez le notaire</option>
+            <option value="fermee">Fermée ✅</option>
+            <option value="refusee">Refusée</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <textarea id="tNotes" placeholder="Conditions, clauses, remarques..." maxlength="2000"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modalTrans')">Annuler</button>
+      <button class="btn btn-primary" onclick="saveTrans()">💾 Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Tâche -->
+<div class="modal-backdrop" id="modalTache">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modalTacheTitle">Nouvelle tâche</span>
+      <button class="modal-close" onclick="closeModal('modalTache')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Titre *</label>
+        <input type="text" id="tTitre" placeholder="Ex : Appeler Marie Tremblay" maxlength="300" />
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="tDescription" placeholder="Détails, notes..." style="min-height:70px" maxlength="2000"></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Priorité</label>
+          <select id="tPriorite">
+            <option value="haute">🔴 Haute</option>
+            <option value="moyenne" selected>🟡 Moyenne</option>
+            <option value="basse">🔵 Basse</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Date d'échéance</label>
+          <input type="date" id="tEcheance" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Client lié (optionnel)</label>
+        <select id="tClientId"><option value="">— Aucun —</option></select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modalTache')">Annuler</button>
+      <button class="btn btn-primary" onclick="saveTache()">💾 Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Input import backup (caché) -->
+<input type="file" id="importFileInput" accept=".json" style="display:none" onchange="importBackup(event)" />
+
+<!-- Toasts -->
+<div class="toast-container" id="toasts"></div>
+
+<!-- Modal Email Courtier -->
+<div class="modal-backdrop" id="modalEmail">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">📧 Envoyer un courriel à un courtier</span>
+      <button class="modal-close" onclick="closeModal('modalEmail')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Courriel du courtier destinataire *</label>
+        <input type="email" id="emailTo" placeholder="courtier@exemple.com" />
+      </div>
+      <div class="form-group">
+        <label>Sujet *</label>
+        <input type="text" id="emailSujet" placeholder="Demande de co-courtage — Propriété à Terrebonne" />
+      </div>
+      <div class="form-group">
+        <label>Message *</label>
+        <textarea id="emailCorps" style="min-height:160px" placeholder="Bonjour,&#10;&#10;Je souhaite vous contacter concernant..."></textarea>
+      </div>
+      <div style="background:#f0f4ff;border-radius:8px;padding:12px;font-size:.82rem;color:#475569">
+        ℹ️ Votre client de messagerie (Outlook, Gmail, etc.) s'ouvrira avec ce message pré-rempli. Vous n'aurez qu'à cliquer <strong>Envoyer</strong>.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modalEmail')">Annuler</button>
+      <button class="btn btn-primary" onclick="envoyerEmailCourtier()">📧 Ouvrir et envoyer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp }          from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+  import { getDatabase, ref, push, set, onValue, serverTimestamp }
+                                    from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
+
+  // Config intégrée — tous les courtiers JMC se connectent automatiquement
+  const JMC_FIREBASE_CFG = {
+    apiKey:            "AIzaSyArB0RM70A4T9BjhFyazSr6x4ypPdd-bfc",
+    authDomain:        "jmc-courtier.firebaseapp.com",
+    databaseURL:       "https://jmc-courtier-default-rtdb.firebaseio.com",
+    projectId:         "jmc-courtier",
+    storageBucket:     "jmc-courtier.firebasestorage.app",
+    messagingSenderId: "560404949847",
+    appId:             "1:560404949847:web:b0f810a3f2ab64a3d9ec12"
+  };
+
+  window._fbReady = false;
+  window._fbDB    = null;
+  window._fbRef   = null;
+  window._fbUnsub = null;
+  window.JMC_FIREBASE_CFG = JMC_FIREBASE_CFG;
+
+  window.initFirebase = function(cfg) {
+    try {
+      const app = initializeApp(cfg, 'jmc-courtier');
+      window._fbDB   = getDatabase(app);
+      window._fbRef  = ref(window._fbDB, 'messages');
+      window._fbReady = true;
+      window._fbPush = (msg) => push(window._fbRef, msg);
+      window._fbListen = (cb) => onValue(window._fbRef, cb);
+      window._fbServerTS = serverTimestamp;
+
+      // Sync CRM data
+      const crmRef = ref(window._fbDB, 'jmc_crm_v1');
+      window._fbSaveCRM   = (data) => set(crmRef, data);
+      window._fbListenCRM = (cb)   => onValue(crmRef, cb);
+
+      window.dispatchEvent(new Event('firebase-ready'));
+      return true;
+    } catch(e) {
+      console.warn('Firebase init error:', e);
+      return false;
+    }
+  };
+
+  // Auto-initialisation avec la config intégrée
+  window.initFirebase(JMC_FIREBASE_CFG);
+  localStorage.setItem('courtier_firebase', JSON.stringify(JMC_FIREBASE_CFG));
+</script>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
