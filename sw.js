@@ -28,10 +28,12 @@ self.addEventListener('fetch', e => {
       caches.open(CACHE).then(cache =>
         cache.match(e.request).then(cached => {
           if (cached) return cached;
-          return fetch(e.request).then(response => {
-            cache.put(e.request, response.clone());
-            return response;
-          });
+          return fetch(e.request)
+            .then(response => {
+              if (response.ok) cache.put(e.request, response.clone());
+              return response;
+            })
+            .catch(() => new Response('', { status: 408, statusText: 'Offline' }));
         })
       )
     );
@@ -40,7 +42,10 @@ self.addEventListener('fetch', e => {
 
   e.respondWith(
     fetch(e.request)
-      .then(r => { caches.open(CACHE).then(c => c.put(e.request, r.clone())); return r; })
+      .then(r => {
+        if (r.ok) caches.open(CACHE).then(c => c.put(e.request, r.clone()));
+        return r;
+      })
       .catch(() => caches.match(e.request))
   );
 });
