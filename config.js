@@ -13,6 +13,6 @@ const COURTIER_PROFILE = {
     telephone:  '514-916-5407',
     email:      'cazeauvendu@gmail.com',
     site:       'https://cazeauvendu.com',
-    permis:     '',
+    permis:     'À_COMPLÉTER',
     adresse:    'Terrebonne, Québec, Canada'
 };
