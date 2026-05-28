@@ -50,22 +50,29 @@ function setPropPage(p)    { propPage   = p; navigate('proprietes'); }
 function setTranPage(p)    { tranPage   = p; navigate('transactions'); }
 
 // ── AUTHENTIFICATION ──
+// Mots de passe stockés comme hash SHA-256 (crypto.subtle)
 // Mot de passe par défaut : JMC2024!
-// Pour changer : remplacer le tableau par les codes ASCII du nouveau mot de passe
-// Ex: 'ABC' → [65,66,67]
 const AUTH_USERS = {
-    //          J   M   C   2   0   2   4   !
-    'CourtierJMC': [74, 77, 67, 50, 48, 50, 52, 33]
+    'CourtierJMC': '45ac450809760f5534a968705b22f77fe0786484609952ef0817696daba4d467'
 };
 
-function getPassCodes(user) {
+async function hashPass(pass) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pass));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function getPassHash(user) {
     const saved = localStorage.getItem('jmc_pass_' + user);
-    if (saved) { try { return JSON.parse(saved); } catch(e) {} }
+    if (saved) {
+        try {
+            const parsed = JSON.parse(saved);
+            if (typeof parsed === 'string') return parsed;
+        } catch(e) {}
+    }
     return AUTH_USERS[user];
 }
 
-function checkPass(user, pass) {
-    // Vérifier le mot de passe temporaire en premier
+async function checkPass(user, pass) {
     const tmpRaw = localStorage.getItem('jmc_temp_' + user);
     if (tmpRaw) {
         try {
@@ -77,20 +84,14 @@ function checkPass(user, pass) {
             }
         } catch(e) {}
     }
-
-    // Vérifier le mot de passe normal
-    const codes = getPassCodes(user);
-    if (!codes || pass.length !== codes.length) return false;
-    for (let i = 0; i < codes.length; i++) {
-        if (pass.charCodeAt(i) !== codes[i]) return false;
-    }
-    return true;
+    const hash = await hashPass(pass);
+    return hash === getPassHash(user);
 }
 
 let _loginAttempts = 0;
 let _loginLockUntil = 0;
 
-function tryLogin() {
+async function tryLogin() {
     const user = document.getElementById('loginUser').value;
     const pass = document.getElementById('loginPass').value;
     const err  = document.getElementById('loginError');
@@ -107,7 +108,7 @@ function tryLogin() {
 
     if (!user || !pass) { err.style.display = 'block'; err.innerHTML = '❌ Identifiant ou mot de passe incorrect.'; return; }
 
-    if (AUTH_USERS[user] && checkPass(user, pass)) {
+    if (AUTH_USERS[user] && await checkPass(user, pass)) {
         _loginAttempts = 0;
         sessionStorage.setItem('jmc_auth', '1');
         sessionStorage.setItem('jmc_user', user);
@@ -144,13 +145,13 @@ function tryLogin() {
     }
 }
 
-function changePassword() {
+async function changePassword() {
     const user    = sessionStorage.getItem('jmc_user') || 'CourtierJMC';
     const actuel  = document.getElementById('passActuel')?.value || '';
     const nouveau = document.getElementById('passNouveau')?.value || '';
     const confirm = document.getElementById('passConfirm')?.value || '';
 
-    if (!checkPass(user, actuel)) {
+    if (!await checkPass(user, actuel)) {
         toast('Mot de passe actuel incorrect ❌', 'error');
         document.getElementById('passActuel').value = '';
         document.getElementById('passActuel').focus();
@@ -167,8 +168,8 @@ function changePassword() {
         return;
     }
 
-    const codes = [...nouveau].map(c => c.charCodeAt(0));
-    localStorage.setItem('jmc_pass_' + user, JSON.stringify(codes));
+    const hash = await hashPass(nouveau);
+    localStorage.setItem('jmc_pass_' + user, JSON.stringify(hash));
 
     document.getElementById('passActuel').value  = '';
     document.getElementById('passNouveau').value = '';
@@ -356,6 +357,8 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function initApp() {
+    const _oldPass = localStorage.getItem('jmc_pass_CourtierJMC');
+    if (_oldPass) { try { if (Array.isArray(JSON.parse(_oldPass))) localStorage.removeItem('jmc_pass_CourtierJMC'); } catch(e) { localStorage.removeItem('jmc_pass_CourtierJMC'); } }
     loadDB();
     restoreFilters();
     applyProfile();
