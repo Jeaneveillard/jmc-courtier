@@ -192,10 +192,10 @@ function requestNotifPermission() {
     }
 }
 
-function sendNotif(title, body, icon) {
+function sendNotif(title, body) {
     if (Notification.permission !== 'granted') return;
     try {
-        new Notification(title, { body, icon: icon || 'icon-192.png', badge: 'icon-192.png' });
+        new Notification(title, { body });
     } catch(e) {}
 }
 
@@ -378,6 +378,9 @@ function initApp() {
     // Notifications
     requestNotifPermission();
     setTimeout(() => checkNotifications(), 2000);
+
+    // Panneau IA redimensionnable
+    initAIResize();
 
     // Navigation
     document.querySelectorAll('.nav-item[data-page]').forEach(el => {
@@ -1353,7 +1356,16 @@ function importBackup(event) {
 function renderParametres() {
     const saved = JSON.parse(localStorage.getItem('courtier_profile') || '{}');
     const p = { ...(typeof COURTIER_PROFILE !== 'undefined' ? COURTIER_PROFILE : {}), ...saved };
+    const permisManquant = !p.permis || p.permis === 'À_COMPLÉTER';
     return `
+    ${permisManquant ? `
+    <div style="max-width:600px;background:#fff7ed;border:1.5px solid #f97316;border-radius:10px;padding:14px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px">
+      <span style="font-size:1.3rem">⚠️</span>
+      <div>
+        <div style="font-weight:700;color:#c2410c;font-size:.92rem">Numéro de permis OACIQ manquant</div>
+        <div style="font-size:.82rem;color:#92400e;margin-top:2px">Obligatoire pour la conformité professionnelle. Remplissez le champ ci-dessous.</div>
+      </div>
+    </div>` : ''}
     <div class="card" style="max-width:600px">
       <div class="card-title" style="margin-bottom:20px">⚙️ Profil du courtier</div>
       <div class="form-group"><label>Nom complet</label><input type="text" id="pNom" value="${esc(p.nom)}" /></div>
@@ -1801,6 +1813,62 @@ function clearAll() {
 function toggleAI() {
     const p = document.getElementById('aiPanel');
     p.classList.toggle('hidden');
+}
+
+function setAIWidth(w) {
+    const panel = document.getElementById('aiPanel');
+    if (!panel) return;
+    const clamped = Math.min(Math.max(w, 220), 700);
+    panel.style.flex = `0 0 ${clamped}px`;
+    localStorage.setItem('jmc_ai_width', clamped);
+}
+
+function resizeAI(delta) {
+    const panel = document.getElementById('aiPanel');
+    if (!panel) return;
+    setAIWidth(panel.offsetWidth + delta);
+}
+
+function initAIResize() {
+    const panel  = document.getElementById('aiPanel');
+    const handle = document.getElementById('aiResizeHandle');
+    if (!panel || !handle) return;
+
+    // Restaurer la largeur sauvegardée
+    const saved = parseInt(localStorage.getItem('jmc_ai_width'));
+    if (saved) panel.style.flex = `0 0 ${saved}px`;
+
+    let dragging = false;
+    let startX   = 0;
+    let startW   = 0;
+
+    handle.addEventListener('mousedown', e => {
+        dragging = true;
+        startX   = e.clientX;
+        startW   = panel.offsetWidth;
+        handle.classList.add('dragging');
+        document.body.style.cursor     = 'col-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        // Poignée à gauche du panneau : tirer à gauche = agrandir
+        const delta = startX - e.clientX;
+        setAIWidth(startW + delta);
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (!dragging) return;
+        dragging = false;
+        handle.classList.remove('dragging');
+        document.body.style.cursor     = '';
+        document.body.style.userSelect = '';
+    });
+
+    // Double-clic → largeur par défaut
+    handle.addEventListener('dblclick', () => setAIWidth(340));
 }
 
 function addAIMessage(text, role) {
@@ -2289,7 +2357,7 @@ function activateFirebase() {
         toast('Connecté ✅', 'success');
         setTimeout(() => navigate('messagerie'), 400);
     } else {
-        const ok = window.initFirebase(cfg);
+        const ok = /** @type {any} */ (window).initFirebase(cfg);
         if (ok) {
             toast('Connecté ✅', 'success');
             setTimeout(() => navigate('messagerie'), 400);
