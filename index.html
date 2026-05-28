@@ -76,7 +76,7 @@
       </div>
     </div>
     <div class="sidebar-agent">
-      <div class="agent-name" id="sidebarName">Jean Eveillard Cazeau</div>
+      <div class="agent-name" id="sidebarName">Jean Morrely Cazeau</div>
       <div class="agent-title">Courtier immobilier</div>
     </div>
     <nav class="nav">
@@ -162,13 +162,17 @@
 
   <!-- ── AI PANEL ── -->
   <div class="ai-panel" id="aiPanel">
+    <!-- Poignée de redimensionnement -->
+    <div id="aiResizeHandle" class="ai-resize-handle" title="Glisser pour redimensionner — double-clic pour réinitialiser"></div>
     <div class="ai-header">
       <div>
         <h3>🤖 Assistant IA</h3>
         <div id="aiProviderBadge" style="font-size:.72rem;margin-top:2px;color:#fca5a5">○ Non configuré</div>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <button id="aiConfigBtn" style="background:none;border:none;color:white;cursor:pointer;font-size:1rem;" title="Configurer API">⚙️</button>
+      <div style="display:flex;gap:4px;align-items:center;">
+        <button onclick="resizeAI(-60)" title="Réduire" style="background:rgba(255,255,255,.15);border:none;color:white;cursor:pointer;font-size:.85rem;width:24px;height:24px;border-radius:4px;line-height:1">◀</button>
+        <button onclick="resizeAI(60)"  title="Agrandir" style="background:rgba(255,255,255,.15);border:none;color:white;cursor:pointer;font-size:.85rem;width:24px;height:24px;border-radius:4px;line-height:1">▶</button>
+        <button id="aiConfigBtn" style="background:none;border:none;color:white;cursor:pointer;font-size:1rem;margin-left:4px;" title="Configurer API">⚙️</button>
         <button onclick="toggleAI()" style="background:none;border:none;color:white;cursor:pointer;font-size:1.1rem;">✕</button>
       </div>
     </div>
