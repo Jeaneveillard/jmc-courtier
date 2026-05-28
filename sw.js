@@ -1,6 +1,5 @@
-const CACHE = 'jmc-courtier-v3';
+const CACHE = 'jmc-courtier-v4';
 const ASSETS = [
-  '/',
   'index.html',
   'style.css',
   'app.js',
@@ -18,8 +17,30 @@ self.addEventListener('activate', e => e.waitUntil(
   )
 ));
 
-self.addEventListener('fetch', e => e.respondWith(
-  fetch(e.request)
-    .then(r => { caches.open(CACHE).then(c => c.put(e.request, r.clone())); return r; })
-    .catch(() => caches.match(e.request))
-));
+self.addEventListener('fetch', e => {
+  const url = e.request.url;
+  const isFontRequest =
+    url.includes('fonts.googleapis.com') ||
+    url.includes('fonts.gstatic.com');
+
+  if (isFontRequest) {
+    e.respondWith(
+      caches.open(CACHE).then(cache =>
+        cache.match(e.request).then(cached => {
+          if (cached) return cached;
+          return fetch(e.request).then(response => {
+            cache.put(e.request, response.clone());
+            return response;
+          });
+        })
+      )
+    );
+    return;
+  }
+
+  e.respondWith(
+    fetch(e.request)
+      .then(r => { caches.open(CACHE).then(c => c.put(e.request, r.clone())); return r; })
+      .catch(() => caches.match(e.request))
+  );
+});
