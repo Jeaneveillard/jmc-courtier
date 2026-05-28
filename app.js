@@ -90,58 +90,65 @@ async function checkPass(user, pass) {
 
 let _loginAttempts = 0;
 let _loginLockUntil = 0;
+let _loginInProgress = false;
 
 async function tryLogin() {
-    const user = document.getElementById('loginUser').value;
-    const pass = document.getElementById('loginPass').value;
-    const err  = document.getElementById('loginError');
-    const btn  = document.getElementById('loginBtn');
+    if (_loginInProgress) return;
+    _loginInProgress = true;
+    try {
+        const user = document.getElementById('loginUser').value;
+        const pass = document.getElementById('loginPass').value;
+        const err  = document.getElementById('loginError');
+        const btn  = document.getElementById('loginBtn');
 
-    // Vérifier si compte bloqué
-    if (Date.now() < _loginLockUntil) {
-        const secs = Math.ceil((_loginLockUntil - Date.now()) / 1000);
-        const mins = Math.floor(secs / 60);
-        err.style.display = 'block';
-        err.innerHTML = `🔒 Trop de tentatives. Réessayez dans <strong>${mins > 0 ? mins + ' min ' : ''}${secs % 60} sec</strong>.`;
-        return;
-    }
-
-    if (!user || !pass) { err.style.display = 'block'; err.innerHTML = '❌ Identifiant ou mot de passe incorrect.'; return; }
-
-    if (AUTH_USERS[user] && await checkPass(user, pass)) {
-        _loginAttempts = 0;
-        sessionStorage.setItem('jmc_auth', '1');
-        sessionStorage.setItem('jmc_user', user);
-        localStorage.setItem('jmc_last_user', user);
-        document.getElementById('loginScreen').style.display = 'none';
-        document.getElementById('app').style.display = 'flex';
-        initApp();
-    } else {
-        _loginAttempts++;
-        document.getElementById('loginPass').value = '';
-        document.getElementById('loginPass').focus();
-
-        if (_loginAttempts >= 3) {
-            _loginLockUntil = Date.now() + 5 * 60 * 1000;
-            _loginAttempts  = 0;
+        // Vérifier si compte bloqué
+        if (Date.now() < _loginLockUntil) {
+            const secs = Math.ceil((_loginLockUntil - Date.now()) / 1000);
+            const mins = Math.floor(secs / 60);
             err.style.display = 'block';
-            err.innerHTML = '🔒 3 tentatives échouées. Compte bloqué <strong>5 minutes</strong>.';
-            if (btn) btn.disabled = true;
-            const interval = setInterval(() => {
-                if (Date.now() >= _loginLockUntil) {
-                    clearInterval(interval);
-                    err.style.display = 'none';
-                    if (btn) btn.disabled = false;
-                } else {
-                    const s = Math.ceil((_loginLockUntil - Date.now()) / 1000);
-                    err.innerHTML = `🔒 Compte bloqué. Réessayez dans <strong>${Math.floor(s/60)} min ${s%60} sec</strong>.`;
-                }
-            }, 1000);
-        } else {
-            err.style.display = 'block';
-            err.innerHTML = `❌ Identifiant ou mot de passe incorrect. (${_loginAttempts}/3)`;
-            if (btn) { btn.disabled = true; setTimeout(() => btn.disabled = false, 1500); }
+            err.innerHTML = `🔒 Trop de tentatives. Réessayez dans <strong>${mins > 0 ? mins + ' min ' : ''}${secs % 60} sec</strong>.`;
+            return;
         }
+
+        if (!user || !pass) { err.style.display = 'block'; err.innerHTML = '❌ Identifiant ou mot de passe incorrect.'; return; }
+
+        if (AUTH_USERS[user] && await checkPass(user, pass)) {
+            _loginAttempts = 0;
+            sessionStorage.setItem('jmc_auth', '1');
+            sessionStorage.setItem('jmc_user', user);
+            localStorage.setItem('jmc_last_user', user);
+            document.getElementById('loginScreen').style.display = 'none';
+            document.getElementById('app').style.display = 'flex';
+            initApp();
+        } else {
+            _loginAttempts++;
+            document.getElementById('loginPass').value = '';
+            document.getElementById('loginPass').focus();
+
+            if (_loginAttempts >= 3) {
+                _loginLockUntil = Date.now() + 5 * 60 * 1000;
+                _loginAttempts  = 0;
+                err.style.display = 'block';
+                err.innerHTML = '🔒 3 tentatives échouées. Compte bloqué <strong>5 minutes</strong>.';
+                if (btn) btn.disabled = true;
+                const interval = setInterval(() => {
+                    if (Date.now() >= _loginLockUntil) {
+                        clearInterval(interval);
+                        err.style.display = 'none';
+                        if (btn) btn.disabled = false;
+                    } else {
+                        const s = Math.ceil((_loginLockUntil - Date.now()) / 1000);
+                        err.innerHTML = `🔒 Compte bloqué. Réessayez dans <strong>${Math.floor(s/60)} min ${s%60} sec</strong>.`;
+                    }
+                }, 1000);
+            } else {
+                err.style.display = 'block';
+                err.innerHTML = `❌ Identifiant ou mot de passe incorrect. (${_loginAttempts}/3)`;
+                if (btn) { btn.disabled = true; setTimeout(() => btn.disabled = false, 1500); }
+            }
+        }
+    } finally {
+        _loginInProgress = false;
     }
 }
 
