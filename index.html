@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JMC Courtier</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏠</text></svg>" />
+  <link rel="apple-touch-icon" href="icon-180.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
@@ -303,6 +304,22 @@
         <label>Notes</label>
         <textarea id="cNotes" placeholder="Préférences, critères importants..." maxlength="2000"></textarea>
       </div>
+      <div style="display:flex;align-items:center;gap:10px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 12px">
+        <input type="checkbox" id="cConsent" style="width:16px;height:16px;cursor:pointer;flex-shrink:0" />
+        <label for="cConsent" style="margin:0;font-size:.83rem;cursor:pointer;color:#0c4a6e">
+          Consentement obtenu pour la conservation des renseignements personnels (Loi 25)
+        </label>
+        <span id="cConsentDate" style="font-size:.73rem;color:#64748b;white-space:nowrap"></span>
+      </div>
+      <div id="clientJournalSection" style="display:none;margin-top:14px">
+        <div style="font-weight:700;font-size:.86rem;color:#0d1f3c;margin-bottom:8px">📒 Journal de contacts</div>
+        <div id="clientJournalList" style="max-height:150px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px;padding:6px 12px;background:#f8fafc"></div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <input type="text" id="journalEntry" placeholder="Ex : Appel — veut visiter samedi" maxlength="300" style="flex:1"
+            onkeydown="if(event.key==='Enter')addJournalEntry()" />
+          <button class="btn btn-outline" onclick="addJournalEntry()">＋ Ajouter</button>
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modalClient')">Annuler</button>
@@ -491,7 +508,17 @@
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label>Date de clôture</label>
+          <label>Date d'inspection</label>
+          <input type="date" id="tDateInspection" />
+        </div>
+        <div class="form-group">
+          <label>Échéance financement (conditions)</label>
+          <input type="date" id="tDateFinancement" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Date de clôture (notaire)</label>
           <input type="date" id="tDateCloture" />
         </div>
         <div class="form-group">
@@ -563,6 +590,28 @@
 
 <!-- Input import backup (caché) -->
 <input type="file" id="importFileInput" accept=".json" style="display:none" onchange="importBackup(event)" />
+
+<!-- Modal mot de passe de sauvegarde chiffrée -->
+<div class="modal-backdrop" id="modalBackupPass">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <span class="modal-title">🔐 Mot de passe de sauvegarde</span>
+      <button class="modal-close" onclick="document.getElementById('modalBackupPass').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="backupPassHint" style="font-size:.84rem;color:#64748b;margin-bottom:14px;line-height:1.6"></p>
+      <div class="form-group">
+        <label>Mot de passe (min. 8 caractères)</label>
+        <input type="password" id="backupPassInput" placeholder="••••••••"
+          onkeydown="if(event.key==='Enter')confirmBackupPass()" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="document.getElementById('modalBackupPass').classList.remove('open')">Annuler</button>
+      <button class="btn btn-primary" onclick="confirmBackupPass()">Continuer</button>
+    </div>
+  </div>
+</div>
 
 <!-- Toasts -->
 <div class="toast-container" id="toasts"></div>

@@ -128,7 +128,7 @@ npx serve .
 python -m http.server 8080
 ```
 
-The Service Worker (`sw.js`) caches all five assets (`index.html`, `style.css`, `app.js`, `config.js`, `manifest.json`) for offline use. Cache version is `jmc-courtier-v8` — bump it in `sw.js` after any asset change to force cache invalidation on users' browsers. Only GET requests are intercepted/cached (POST API calls pass through untouched).
+The Service Worker (`sw.js`) caches all five assets (`index.html`, `style.css`, `app.js`, `config.js`, `manifest.json`) for offline use. Cache version is `jmc-courtier-v9` — bump it in `sw.js` after any asset change to force cache invalidation on users' browsers. Only GET requests are intercepted/cached (POST API calls pass through untouched).
 
 ## Architecture
 
@@ -151,6 +151,12 @@ let DB = { clients, proprietes, visites, transactions, taches }
 - **Primary persistence**: `localStorage` key `courtier_db` (JSON). `saveDB()` writes it synchronously on every mutation.
 - **Cloud sync**: Firebase Realtime Database path `jmc_crm_v1`. `saveDB()` debounces a 2-second write. `initFirebaseSync()` subscribes to `onValue` — Firebase always wins on merge (remote overwrites local if different).
 - **Sync encryption**: the payload written to Firebase is an AES-256-GCM blob `{ v, iv, enc }` produced by `encryptDB()` (key derived via PBKDF2 from `localStorage.jmc_sync_pass`). No passphrase → sync disabled entirely (status `nokey`); wrong passphrase → status `badkey`, no overwrite. Legacy plaintext found remotely is migrated to encrypted form on first sync.
+- **Backups**: `exportEncrypted()` downloads an AES-encrypted backup (password-prompted via `modalBackupPass`, or the sync passphrase if set); a weekly encrypted auto-backup fires on app start when the sync passphrase exists. `importBackup()` detects `{enc, iv}` payloads and prompts for the password. Plain-JSON export remains available.
+- **Trash**: `deleteItem()` moves items to `localStorage.jmc_trash` (30-day retention, max 100 entries) with an "Annuler" toast action; restore/empty UI lives in Paramètres.
+- **Auto-logout**: 30 minutes of inactivity (`initAutoLogout`/`checkInactivity`) ends the session.
+- **Matching**: `getMatchesForProp(p)` pairs active/prospect buyers (budget/preapproval ≥ 95 % of price) with active listings; surfaced on the dashboard (`renderJumelages`) and on property cards.
+- **Transaction deadlines**: `dateInspection`, `dateFinancement`, `dateCloture` feed `getWarnings()` (3-day / 3-day / 7-day alerts). Pipeline supports drag & drop between statuses (`dragTrans`/`dropTrans`).
+- **Client compliance**: each client carries `journal` (timestamped contact log) and `consentement`/`consentementDate` (Loi 25 consent).
 - Firebase is initialized as an ES module inline in `index.html`, then exposed on `window._fb*` globals for `app.js` to consume.
 
 ### Authentication (`app.js` ~line 52)

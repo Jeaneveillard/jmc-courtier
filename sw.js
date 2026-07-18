@@ -1,10 +1,13 @@
-const CACHE = 'jmc-courtier-v8';
+const CACHE = 'jmc-courtier-v9';
 const ASSETS = [
   'index.html',
   'style.css',
   'app.js',
   'config.js',
-  'manifest.json'
+  'manifest.json',
+  'icon-180.png',
+  'icon-192.png',
+  'icon-512.png'
 ];
 
 self.addEventListener('install', e => e.waitUntil(

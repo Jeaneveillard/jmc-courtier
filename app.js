@@ -193,6 +193,23 @@ function logout() {
     location.reload();
 }
 
+// ── DÉCONNEXION AUTOMATIQUE (30 min d'inactivité) ──
+let _lastActivity = Date.now();
+const INACTIVITY_LIMIT = 30 * 60 * 1000;
+
+function checkInactivity() {
+    if (sessionStorage.getItem('jmc_auth') === '1' && Date.now() - _lastActivity > INACTIVITY_LIMIT) {
+        logout();
+    }
+}
+
+function initAutoLogout() {
+    ['click', 'keydown', 'mousemove', 'touchstart', 'scroll'].forEach(evt =>
+        document.addEventListener(evt, () => { _lastActivity = Date.now(); }, { passive: true })
+    );
+    setInterval(checkInactivity, 60000);
+}
+
 // ── NOTIFICATIONS ──
 function requestNotifPermission() {
     if (!('Notification' in window)) return;
@@ -390,6 +407,20 @@ function initApp() {
     requestNotifPermission();
     setTimeout(() => checkNotifications(), 2000);
 
+    // Corbeille : purge des éléments de plus de 30 jours
+    purgeTrash();
+
+    // Déconnexion automatique après inactivité
+    initAutoLogout();
+
+    // Sauvegarde chiffrée automatique hebdomadaire (si phrase secrète définie)
+    const lastB = parseInt(localStorage.getItem('jmc_last_backup')) || 0;
+    if (localStorage.getItem('jmc_sync_pass') &&
+        Date.now() - lastB > 7 * 24 * 60 * 60 * 1000 &&
+        (DB.clients.length || DB.proprietes.length)) {
+        setTimeout(() => doExportEncrypted(localStorage.getItem('jmc_sync_pass'), true), 4000);
+    }
+
     // Panneau IA redimensionnable
     initAIResize();
 
@@ -506,6 +537,59 @@ function renderPage(page) {
     }
 }
 
+// ── JUMELAGE ACHETEURS ↔ PROPRIÉTÉS ──
+function getMatchesForProp(p) {
+    if (!p || !p.prix) return [];
+    return DB.clients
+        .filter(c => {
+            if (!['acheteur','les-deux','investisseur'].includes(c.type)) return false;
+            if (!['actif','prospect'].includes(c.statut)) return false;
+            const capacite = Math.max(c.budgetMax || 0, c.preappro || 0);
+            if (!capacite || capacite < p.prix * 0.95) return false; // tolérance négo 5 %
+            if (c.budgetMin && p.prix < c.budgetMin * 0.8) return false; // trop sous son budget
+            return true;
+        })
+        .map(c => ({ ...c, quartierMatch: !!(c.quartiers && p.ville && c.quartiers.toLowerCase().includes(p.ville.toLowerCase())) }))
+        .sort((a, b) => (b.quartierMatch ? 1 : 0) - (a.quartierMatch ? 1 : 0) || (b.preappro ? 1 : 0) - (a.preappro ? 1 : 0));
+}
+
+function openVisiteFor(clientId, propId) {
+    openModal('modalVisite', true);
+    document.getElementById('vClient').value = clientId;
+    document.getElementById('vProp').value   = propId;
+}
+
+function renderJumelages() {
+    const pairs = [];
+    DB.proprietes.filter(p => p.statut === 'actif').forEach(p => {
+        getMatchesForProp(p).slice(0, 3).forEach(c => pairs.push({ p, c }));
+    });
+    if (!pairs.length) return '';
+    return `
+    <div class="card" style="margin-bottom:20px;border:1px solid #bbf7d0">
+      <div class="card-header">
+        <span class="card-title">🎯 Jumelages suggérés (${pairs.length})</span>
+        <span style="font-size:.75rem;color:var(--gray)">Acheteurs dont le budget correspond à vos inscriptions actives</span>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Acheteur</th><th>Capacité</th><th>Propriété</th><th>Prix</th><th></th></tr></thead>
+        <tbody>
+        ${pairs.slice(0, 6).map(({ p, c }) => `
+          <tr>
+            <td><strong>${esc(c.prenom)} ${esc(c.nom)}</strong>${c.quartierMatch ? '<br><small style="color:#059669">📍 secteur recherché</small>' : ''}</td>
+            <td>${fmtMoney(Math.max(c.budgetMax || 0, c.preappro || 0))}${c.preappro ? '<br><small style="color:#059669">✓ préapprouvé</small>' : ''}</td>
+            <td>${esc(p.adresse)}, ${esc(p.ville)}</td>
+            <td><strong>${fmtMoney(p.prix)}</strong></td>
+            <td style="white-space:nowrap">
+              <button class="btn btn-primary btn-sm" onclick="openVisiteFor('${c.id}','${p.id}')">📅 Visite</button>
+              <button class="btn btn-outline btn-sm" onclick="editClient('${c.id}')">👤</button>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>
+    </div>`;
+}
+
 // ── DASHBOARD ──
 function renderDashboard() {
     const today = new Date().toISOString().split('T')[0];
@@ -576,6 +660,8 @@ function renderDashboard() {
       <button class="btn btn-outline" onclick="openModal('modalVisite',true)">📅 + Planifier une visite</button>
       <button class="btn btn-outline" onclick="openModal('modalTrans',true)">💼 + Transaction</button>
     </div>
+
+    ${renderJumelages()}
 
     <div class="grid-2">
       <div class="card">
@@ -762,6 +848,9 @@ function renderProprietes() {
               ${p.superficie ? `<span>📐 ${fmtNum(p.superficie)} pi²</span>` : ''}
               ${p.annee ? `<span>📅 ${p.annee}</span>` : ''}
             </div>
+            ${p.statut === 'actif' && getMatchesForProp(p).length
+                ? `<div style="margin-top:6px;font-size:.78rem;color:#059669;font-weight:600">🎯 ${getMatchesForProp(p).length} acheteur(s) potentiel(s)</div>`
+                : ''}
             <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
               <small style="color:#94a3b8">${esc(p.type)}</small>
               <button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border:none;" onclick="event.stopPropagation();deleteItem('proprietes','${p.id}')">🗑</button>
@@ -797,7 +886,10 @@ function renderVisites() {
             <span>🏠 ${prop ? esc(prop.adresse) + ', ' + esc(prop.ville) : '?'} · ${esc(v.heure)}</span>
             ${v.notes ? `<br><small style="color:#94a3b8">${esc(v.notes)}</small>` : ''}
           </div>
-          <button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border:none;margin-left:auto;align-self:flex-start;" onclick="deleteItem('visites','${v.id}')">🗑</button>
+          <div style="margin-left:auto;align-self:flex-start;display:flex;gap:6px">
+            <button class="btn btn-outline btn-sm" onclick="editVisite('${v.id}')">✏️</button>
+            <button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border:none;" onclick="deleteItem('visites','${v.id}')">🗑</button>
+          </div>
         </div>`;
       }).join('')}
     </div>` : '';
@@ -1025,17 +1117,22 @@ function renderPipeline() {
             ? DB.clients.filter(c => c.statut === 'prospect')
             : [];
         const items = col.id === 'prospect'
-            ? prospects.map(c => ({ label: c.prenom + ' ' + c.nom, sub: c.type || '', amount: null }))
+            ? prospects.map(c => ({ id: null, label: c.prenom + ' ' + c.nom, sub: c.type || '', amount: null }))
             : trans.map(t => {
                 const prop = DB.proprietes.find(p => p.id === t.propId);
                 const ach  = DB.clients.find(c => c.id === t.acheteurId);
-                return { label: prop ? prop.adresse : '?', sub: ach ? ach.prenom + ' ' + ach.nom : '?', amount: t.prixOffre };
+                return { id: t.id, label: prop ? prop.adresse : '?', sub: ach ? ach.prenom + ' ' + ach.nom : '?', amount: t.prixOffre };
             });
+        const droppable = col.id !== 'prospect';
         return `
-        <div class="pipeline-col">
+        <div class="pipeline-col" ${droppable ? `
+          ondragover="event.preventDefault();this.style.outline='2px dashed ${col.color}'"
+          ondragleave="this.style.outline=''"
+          ondrop="this.style.outline='';dropTrans(event,'${col.id}')"` : ''}>
           <div class="pipeline-col-title" style="color:${col.color}">${col.label} <span style="background:${col.color};color:white;padding:1px 7px;border-radius:10px;font-size:.7rem">${items.length}</span></div>
           ${items.map(i => `
-            <div class="pipeline-card" style="border-left-color:${col.color}">
+            <div class="pipeline-card" style="border-left-color:${col.color}${i.id ? ';cursor:grab' : ''}"
+              ${i.id ? `draggable="true" ondragstart="dragTrans(event,'${i.id}')" ondblclick="editTrans('${i.id}')" title="Glissez vers une autre étape — double-clic pour modifier"` : ''}>
               <div class="client-name">${esc(i.label)}</div>
               <div class="prop-ref">${esc(i.sub)}</div>
               ${i.amount ? `<div class="amount">${fmtMoney(i.amount)}</div>` : ''}
@@ -1044,6 +1141,23 @@ function renderPipeline() {
         </div>`;
     }).join('')}
     </div>`;
+}
+
+function dragTrans(ev, id) {
+    ev.dataTransfer.setData('text/plain', id);
+    ev.dataTransfer.effectAllowed = 'move';
+}
+
+function dropTrans(ev, statut) {
+    ev.preventDefault();
+    const id = ev.dataTransfer.getData('text/plain');
+    const t = DB.transactions.find(x => x.id === id);
+    if (!t || !ALLOWED.transStatut.has(statut) || t.statut === statut) return;
+    t.statut = statut;
+    saveDB();
+    navigate('pipeline');
+    updateBadges();
+    toast(`Transaction déplacée → ${statut} ✅`, 'success');
 }
 
 // ── CALCULATEURS ──
@@ -1304,8 +1418,12 @@ function renderRapports() {
         <div class="card-title" style="margin-bottom:16px">📤 Sauvegarde & Export</div>
         <div style="font-size:.8rem;color:#64748b;margin-bottom:14px">${backupInfo}</div>
         <div style="display:flex;flex-direction:column;gap:10px">
-          <button class="btn btn-gold" onclick="exportAll()">💾 Sauvegarder toutes les données (.json)</button>
+          <button class="btn btn-gold" onclick="exportEncrypted()">🔐 Sauvegarde chiffrée (recommandé)</button>
+          <button class="btn btn-outline" onclick="exportAll()">💾 Sauvegarde non chiffrée (.json)</button>
           <button class="btn btn-primary" onclick="document.getElementById('importFileInput').click()">📂 Restaurer une sauvegarde</button>
+          <div style="font-size:.75rem;color:#94a3b8;line-height:1.5">
+            💡 Si une phrase secrète de sync est définie, une sauvegarde chiffrée est téléchargée automatiquement chaque semaine (même mot de passe que la sync).
+          </div>
           <div style="height:1px;background:var(--gray2);margin:4px 0"></div>
           <button class="btn btn-outline" onclick="exportCSV('clients')">📋 Exporter clients (CSV)</button>
           <button class="btn btn-outline" onclick="exportCSV('proprietes')">🏠 Exporter propriétés (CSV)</button>
@@ -1327,36 +1445,19 @@ function importBackup(event) {
                 toast('Fichier trop volumineux (max 10 Mo)', 'error'); return;
             }
             const data = JSON.parse(e.target.result);
-            if (typeof data !== 'object' || data === null ||
-                !Array.isArray(data.clients) || !Array.isArray(data.proprietes)) {
-                toast('Fichier invalide — ce n\'est pas une sauvegarde JMC Courtier', 'error');
+            // Sauvegarde chiffrée → demander le mot de passe
+            if (data && data.enc && data.iv) {
+                askBackupPass(
+                    'Cette sauvegarde est chiffrée. Entrez le mot de passe utilisé lors de l\'export (ou votre phrase secrète de sync).',
+                    async pass => {
+                        const dec = await decryptWithPass(data, pass);
+                        if (!dec) { toast('Mot de passe incorrect ou fichier corrompu ❌', 'error'); return; }
+                        proceedImport(dec);
+                    }
+                );
                 return;
             }
-            // Validation que les tableaux contiennent bien des objets
-            const isArrayOfObjects = arr => Array.isArray(arr) && arr.every(x => typeof x === 'object' && x !== null);
-            if (!isArrayOfObjects(data.clients) || !isArrayOfObjects(data.proprietes)) {
-                toast('Structure de sauvegarde corrompue', 'error'); return;
-            }
-
-            const msg = `Importer cette sauvegarde ?\n\n` +
-                `• ${data.clients.length} clients\n` +
-                `• ${data.proprietes.length} propriétés\n` +
-                `• ${(data.transactions||[]).length} transactions\n` +
-                `• ${(data.taches||[]).length} tâches\n\n` +
-                `⚠️ Cela remplacera toutes les données actuelles.`;
-            if (!confirm(msg)) return;
-
-            DB = {
-                clients:      cleanItems(data.clients),
-                proprietes:   cleanItems(data.proprietes),
-                visites:      cleanItems(data.visites),
-                transactions: cleanItems(data.transactions),
-                taches:       cleanItems(data.taches)
-            };
-            saveDB();
-            navigate('dashboard');
-            updateBadges();
-            toast(`✅ Sauvegarde restaurée — ${data.clients.length} clients, ${data.proprietes.length} propriétés`, 'success');
+            proceedImport(data);
         } catch(err) {
             toast('Erreur de lecture du fichier ❌', 'error');
         }
@@ -1364,12 +1465,57 @@ function importBackup(event) {
     reader.readAsText(file);
 }
 
+function proceedImport(data) {
+    if (typeof data !== 'object' || data === null ||
+        !Array.isArray(data.clients) || !Array.isArray(data.proprietes)) {
+        toast('Fichier invalide — ce n\'est pas une sauvegarde JMC Courtier', 'error');
+        return;
+    }
+    const msg = `Importer cette sauvegarde ?\n\n` +
+        `• ${data.clients.length} clients\n` +
+        `• ${data.proprietes.length} propriétés\n` +
+        `• ${(data.transactions||[]).length} transactions\n` +
+        `• ${(data.taches||[]).length} tâches\n\n` +
+        `⚠️ Cela remplacera toutes les données actuelles.`;
+    if (!confirm(msg)) return;
+
+    DB = {
+        clients:      cleanItems(data.clients),
+        proprietes:   cleanItems(data.proprietes),
+        visites:      cleanItems(data.visites),
+        transactions: cleanItems(data.transactions),
+        taches:       cleanItems(data.taches)
+    };
+    saveDB();
+    navigate('dashboard');
+    updateBadges();
+    toast(`✅ Sauvegarde restaurée — ${DB.clients.length} clients, ${DB.proprietes.length} propriétés`, 'success');
+}
+
 // ── PARAMÈTRES ──
+const TRASH_TABLE_LABELS = {
+    clients: 'Client', proprietes: 'Propriété', visites: 'Visite',
+    transactions: 'Transaction', taches: 'Tâche'
+};
+
+function trashLabel(x) {
+    const i = x.item || {};
+    switch (x.table) {
+        case 'clients':      return `${i.prenom || ''} ${i.nom || ''}`.trim() || '(sans nom)';
+        case 'proprietes':   return `${i.adresse || ''}, ${i.ville || ''}`.replace(/^, |, $/g, '') || '(sans adresse)';
+        case 'visites':      return `Visite du ${i.date || '?'}`;
+        case 'transactions': return `Offre ${fmtMoney(i.prixOffre)}`;
+        case 'taches':       return i.titre || '(sans titre)';
+        default:             return i.id || '?';
+    }
+}
+
 function renderParametres() {
     const saved = JSON.parse(localStorage.getItem('courtier_profile') || '{}');
     const p = { ...(typeof COURTIER_PROFILE !== 'undefined' ? COURTIER_PROFILE : {}), ...saved };
     const permisManquant = !p.permis || p.permis === 'À_COMPLÉTER';
     const syncActive = !!localStorage.getItem('jmc_sync_pass');
+    const trash = getTrash().slice().reverse();
     return `
     ${permisManquant ? `
     <div style="max-width:600px;background:#fff7ed;border:1.5px solid #f97316;border-radius:10px;padding:14px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px">
@@ -1461,6 +1607,25 @@ function renderParametres() {
       </p>
       <button class="btn btn-outline" onclick="resetAllWarnings()">🔔 Réafficher tous les avertissements</button>
     </div>
+    <div class="card" style="max-width:600px;margin-top:20px;">
+      <div class="card-title" style="margin-bottom:12px">🗑 Corbeille (${trash.length})</div>
+      <p style="font-size:.8rem;color:#64748b;margin-bottom:12px">
+        Les éléments supprimés sont conservés 30 jours et peuvent être restaurés.
+      </p>
+      ${trash.length ? `
+      <div style="max-height:220px;overflow-y:auto;border:1px solid var(--gray2);border-radius:8px">
+        ${trash.map(x => `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;border-bottom:1px solid var(--gray2)">
+          <div style="min-width:0">
+            <div style="font-size:.84rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(trashLabel(x))}</div>
+            <div style="font-size:.72rem;color:#94a3b8">${esc(TRASH_TABLE_LABELS[x.table] || x.table)} · supprimé le ${new Date(x.deletedAt).toLocaleDateString('fr-CA')}</div>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="restoreTrashItem('${esc(x.item.id)}')" style="flex-shrink:0">↩️ Restaurer</button>
+        </div>`).join('')}
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="emptyTrash()" style="margin-top:10px;color:#991b1b;border-color:#fecaca">Vider la corbeille</button>`
+      : '<div style="color:#94a3b8;font-size:.84rem">La corbeille est vide.</div>'}
+    </div>
     <div class="card" style="max-width:600px;margin-top:20px;border:1px solid #fee2e2;">
       <div class="card-title" style="margin-bottom:12px;color:#991b1b">⚠️ Zone dangereuse</div>
       <button class="btn btn-danger" onclick="if(confirm('Effacer TOUTES les données ?')) clearAll()">🗑 Effacer toutes les données</button>
@@ -1492,6 +1657,36 @@ function clearClientForm() {
     const s2 = document.getElementById('cStatut'); if(s2) s2.value = 'actif';
     const s3 = document.getElementById('cSource'); if(s3) s3.value = '';
     ['cBudgetMin','cBudgetMax'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+    const cc = document.getElementById('cConsent');      if (cc) cc.checked = false;
+    const cd = document.getElementById('cConsentDate');  if (cd) cd.textContent = '';
+    const js = document.getElementById('clientJournalSection'); if (js) js.style.display = 'none';
+}
+
+function renderClientJournal(c) {
+    const list = document.getElementById('clientJournalList');
+    const sec  = document.getElementById('clientJournalSection');
+    if (!list || !sec) return;
+    sec.style.display = '';
+    const entries = Array.isArray(c.journal) ? [...c.journal].reverse() : [];
+    list.innerHTML = entries.length ? entries.map(e => `
+        <div style="padding:6px 0;border-bottom:1px solid var(--gray2);font-size:.82rem;line-height:1.5">
+          <span style="color:#94a3b8;font-size:.72rem">${esc((e.ts || '').slice(0, 16).replace('T', ' '))}</span><br>${esc(e.texte)}
+        </div>`).join('')
+        : '<div style="color:#94a3b8;font-size:.8rem;padding:8px 0">Aucune entrée — notez chaque appel, courriel ou rencontre.</div>';
+}
+
+function addJournalEntry() {
+    if (!editingId) { toast('Enregistrez d\'abord le client avant d\'ajouter au journal', 'error'); return; }
+    const c = DB.clients.find(x => x.id === editingId);
+    const input = document.getElementById('journalEntry');
+    const texte = sanitize(input?.value, LIMITS.text);
+    if (!c || !texte) return;
+    if (!Array.isArray(c.journal)) c.journal = [];
+    c.journal.push({ ts: now(), texte });
+    input.value = '';
+    saveDB();
+    renderClientJournal(c);
+    toast('Entrée ajoutée au journal ✅', 'success');
 }
 
 function clearPropForm() {
@@ -1508,7 +1703,7 @@ function clearVisiteForm() {
 function clearTransForm() {
     const today = new Date().toISOString().split('T')[0];
     const el = document.getElementById('tDateOffre'); if(el) el.value = today;
-    ['tPrixOffre','tNotes'].forEach(id => { const e2 = document.getElementById(id); if(e2) e2.value = ''; });
+    ['tPrixOffre','tNotes','tDateCloture','tDateInspection','tDateFinancement'].forEach(id => { const e2 = document.getElementById(id); if(e2) e2.value = ''; });
 }
 
 function saveClient() {
@@ -1526,6 +1721,19 @@ function saveClient() {
     const suivi = document.getElementById('cSuivi').value;
     if (!validDate(suivi)) { toast('Format de date invalide', 'error'); return; }
 
+    // Détection de doublons à la création (même courriel ou même téléphone)
+    if (!editingId) {
+        const normTel = t => (t || '').replace(/\D/g, '');
+        const dup = DB.clients.find(c =>
+            (email && c.email && c.email.toLowerCase() === email.toLowerCase()) ||
+            (tel && c.tel && normTel(tel).length >= 7 && normTel(c.tel) === normTel(tel))
+        );
+        if (dup && !confirm(`⚠️ Un client existe déjà avec ces coordonnées :\n\n${dup.prenom} ${dup.nom}\n${dup.tel || ''} ${dup.email || ''}\n\nCréer quand même un nouveau dossier ?`)) return;
+    }
+
+    const prev = editingId ? DB.clients.find(c => c.id === editingId) : null;
+    const consentChecked = document.getElementById('cConsent')?.checked || false;
+
     const client = {
         id:        editingId || uid(),
         prenom, nom, email, tel,
@@ -1537,7 +1745,10 @@ function saveClient() {
         preappro:  Math.min(Math.max(parseFloat(document.getElementById('cPreappro').value) || 0, 0), 9999999),
         suivi,
         notes:     sanitize(document.getElementById('cNotes').value, LIMITS.notes),
-        createdAt: editingId ? (DB.clients.find(c=>c.id===editingId)?.createdAt || now()) : now()
+        journal:          Array.isArray(prev?.journal) ? prev.journal : [],
+        consentement:     consentChecked,
+        consentementDate: consentChecked ? (prev?.consentementDate || now().split('T')[0]) : '',
+        createdAt: editingId ? (prev?.createdAt || now()) : now()
     };
 
     const isEdit = !!editingId;
@@ -1571,6 +1782,9 @@ function editClient(id) {
     document.getElementById('cPreappro').value  = c.preappro || '';
     document.getElementById('cSuivi').value     = c.suivi || '';
     document.getElementById('cNotes').value     = c.notes || '';
+    const cc = document.getElementById('cConsent');     if (cc) cc.checked = !!c.consentement;
+    const cd = document.getElementById('cConsentDate'); if (cd) cd.textContent = c.consentementDate ? `le ${c.consentementDate}` : '';
+    renderClientJournal(c);
     openModal('modalClient', false);
 }
 
@@ -1656,17 +1870,37 @@ function saveVisite() {
     if (!clientId || !propId || !date) { toast('Client, propriété et date requis', 'error'); return; }
     if (!validDate(date)) { toast('Format de date invalide', 'error'); return; }
 
-    DB.visites.push({
-        id: uid(),
+    const isEdit = !!editingId;
+    const visite = {
+        id: editingId || uid(),
         clientId, propId, date,
         heure: sanitize(document.getElementById('vHeure').value, 5),
         notes: sanitize(document.getElementById('vNotes').value, LIMITS.notes),
-        createdAt: now()
-    });
+        createdAt: isEdit ? (DB.visites.find(v => v.id === editingId)?.createdAt || now()) : now()
+    };
+    if (isEdit) {
+        const idx = DB.visites.findIndex(v => v.id === editingId);
+        DB.visites[idx] = visite;
+    } else {
+        DB.visites.push(visite);
+    }
     saveDB(); closeModal('modalVisite');
     navigate('visites');
     updateBadges();
-    toast('Visite planifiée ✅', 'success');
+    toast(isEdit ? 'Visite modifiée ✅' : 'Visite planifiée ✅', 'success');
+}
+
+function editVisite(id) {
+    const v = DB.visites.find(x => x.id === id);
+    if (!v) return;
+    editingId = id;
+    populateSelects();
+    document.getElementById('vClient').value = v.clientId || '';
+    document.getElementById('vProp').value   = v.propId || '';
+    document.getElementById('vDate').value   = v.date || '';
+    document.getElementById('vHeure').value  = v.heure || '';
+    document.getElementById('vNotes').value  = v.notes || '';
+    openModal('modalVisite', false);
 }
 
 function saveTrans() {
@@ -1676,14 +1910,18 @@ function saveTrans() {
     if (!propId || !acheteurId) { toast('Propriété et acheteur requis', 'error'); return; }
     if (!prixOffre || prixOffre <= 0 || prixOffre > 99999999) { toast('Prix d\'offre invalide', 'error'); return; }
 
-    const dateOffre   = document.getElementById('tDateOffre').value;
-    const dateCloture = document.getElementById('tDateCloture').value;
-    if (!validDate(dateOffre) || !validDate(dateCloture)) { toast('Format de date invalide', 'error'); return; }
+    const dateOffre       = document.getElementById('tDateOffre').value;
+    const dateCloture     = document.getElementById('tDateCloture').value;
+    const dateInspection  = document.getElementById('tDateInspection')?.value || '';
+    const dateFinancement = document.getElementById('tDateFinancement')?.value || '';
+    if (!validDate(dateOffre) || !validDate(dateCloture) || !validDate(dateInspection) || !validDate(dateFinancement)) {
+        toast('Format de date invalide', 'error'); return;
+    }
 
     const trans = {
         id: editingId || uid(),
         propId, acheteurId, prixOffre,
-        dateOffre, dateCloture,
+        dateOffre, dateCloture, dateInspection, dateFinancement,
         statut:    checkAllowed(document.getElementById('tStatut').value, ALLOWED.transStatut, 'offre'),
         notes:     sanitize(document.getElementById('tNotes').value, LIMITS.notes),
         createdAt: editingId ? (DB.transactions.find(t=>t.id===editingId)?.createdAt || now()) : now()
@@ -1712,6 +1950,8 @@ function editTrans(id) {
     document.getElementById('tPrixOffre').value  = t.prixOffre || '';
     document.getElementById('tDateOffre').value  = t.dateOffre || '';
     document.getElementById('tDateCloture').value= t.dateCloture || '';
+    const ti = document.getElementById('tDateInspection');  if (ti) ti.value = t.dateInspection || '';
+    const tf = document.getElementById('tDateFinancement'); if (tf) tf.value = t.dateFinancement || '';
     document.getElementById('tStatut').value     = t.statut || 'offre';
     document.getElementById('tNotes').value      = t.notes || '';
     openModal('modalTrans', false);
@@ -1719,13 +1959,49 @@ function editTrans(id) {
 
 const VALID_TABLES = new Set(['clients','proprietes','visites','transactions','taches']);
 
+// ── CORBEILLE (conservation 30 jours) ──
+function getTrash() {
+    try { const t = JSON.parse(localStorage.getItem('jmc_trash') || '[]'); return Array.isArray(t) ? t : []; }
+    catch(e) { return []; }
+}
+function setTrash(t) { localStorage.setItem('jmc_trash', JSON.stringify(t)); }
+function purgeTrash() {
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    setTrash(getTrash().filter(x => x.deletedAt > cutoff));
+}
+
+function restoreTrashItem(id) {
+    const t = getTrash();
+    const idx = t.findIndex(x => x.item && x.item.id === id);
+    if (idx === -1) { toast('Élément introuvable dans la corbeille', 'error'); return; }
+    const { table, item } = t[idx];
+    if (VALID_TABLES.has(table) && !DB[table].some(x => x.id === item.id)) DB[table].push(item);
+    t.splice(idx, 1);
+    setTrash(t);
+    saveDB(); navigate(currentPage); updateBadges();
+    toast('Élément restauré ✅', 'success');
+}
+
+function emptyTrash() {
+    if (!confirm('Vider définitivement la corbeille ?')) return;
+    setTrash([]);
+    navigate('parametres');
+    toast('Corbeille vidée', 'success');
+}
+
 function deleteItem(table, id) {
     if (!VALID_TABLES.has(table)) return;
     if (typeof id !== 'string' || !/^[a-z0-9]+$/i.test(id)) return;
     if (!confirm('Supprimer cet élément ?')) return;
+    const item = DB[table].find(x => x.id === id);
     DB[table] = DB[table].filter(x => x.id !== id);
+    if (item) {
+        const t = getTrash();
+        t.push({ table, item, deletedAt: Date.now() });
+        setTrash(t.slice(-100)); // borne la taille de la corbeille
+    }
     saveDB(); navigate(currentPage); updateBadges();
-    toast('Élément supprimé', 'success');
+    toast('Élément supprimé', 'success', item ? { label: 'Annuler', fn: () => restoreTrashItem(item.id) } : null);
 }
 
 function populateSelects() {
@@ -2843,11 +3119,11 @@ function searchGlobal(q) {
       <div class="card-title" style="margin-bottom:12px">🔍 Résultats pour « ${esc(q)} »</div>
       ${clients.length ? `<h4 style="margin-bottom:8px;color:#1a56db">👥 Clients (${clients.length})</h4>
       <table><thead><tr><th>Nom</th><th>Type</th><th>Statut</th></tr></thead><tbody>
-      ${clients.map(c=>`<tr><td>${esc(c.prenom)} ${esc(c.nom)}</td><td>${badgeType(c.type)}</td><td>${badgeStatut(c.statut)}</td></tr>`).join('')}
+      ${clients.map(c=>`<tr onclick="editClient('${c.id}')" style="cursor:pointer" title="Ouvrir le dossier"><td>${esc(c.prenom)} ${esc(c.nom)}</td><td>${badgeType(c.type)}</td><td>${badgeStatut(c.statut)}</td></tr>`).join('')}
       </tbody></table>` : ''}
       ${props.length ? `<h4 style="margin:16px 0 8px;color:#1a56db">🏠 Propriétés (${props.length})</h4>
       <table><thead><tr><th>Adresse</th><th>Prix</th><th>Statut</th></tr></thead><tbody>
-      ${props.map(p=>`<tr><td>${esc(p.adresse)}, ${esc(p.ville)}</td><td>${fmtMoney(p.prix)}</td><td>${badgeStatutProp(p.statut)}</td></tr>`).join('')}
+      ${props.map(p=>`<tr onclick="editProp('${p.id}')" style="cursor:pointer" title="Ouvrir la fiche"><td>${esc(p.adresse)}, ${esc(p.ville)}</td><td>${fmtMoney(p.prix)}</td><td>${badgeStatutProp(p.statut)}</td></tr>`).join('')}
       </tbody></table>` : ''}
       ${!clients.length && !props.length ? '<div class="empty"><div class="icon">🔍</div><p>Aucun résultat</p></div>' : ''}
     </div>`;
@@ -3106,6 +3382,31 @@ function getWarnings() {
             'Modifier', `editProp('${p.id}')`);
     });
 
+    // ── Échéancier de transaction : inspection / financement / clôture
+    const in3days = new Date(Date.now() + 3*24*60*60*1000).toISOString().split('T')[0];
+    DB.transactions.filter(t => !['fermee','refusee'].includes(t.statut)).forEach(t => {
+        const prop = DB.proprietes.find(p => p.id === t.propId);
+        const addr = prop ? prop.adresse : '?';
+        if (t.dateInspection && t.dateInspection >= today && t.dateInspection <= in3days) {
+            add(`insp_${t.id}`, 'warning', '🏗',
+                `Inspection le ${t.dateInspection} — ${addr}`,
+                'Confirmez l\'inspecteur et prévenez toutes les parties.',
+                'Voir', `editTrans('${t.id}')`);
+        }
+        if (t.dateFinancement && t.dateFinancement >= today && t.dateFinancement <= in3days) {
+            add(`fin_${t.id}`, 'error', '🏦',
+                `Échéance financement le ${t.dateFinancement} — ${addr}`,
+                'Condition de financement à lever — relancez l\'acheteur et son prêteur.',
+                'Voir', `editTrans('${t.id}')`);
+        }
+        if (t.dateCloture && t.dateCloture >= today && t.dateCloture <= in7days) {
+            add(`clot_${t.id}`, 'info', '⚖️',
+                `Clôture le ${t.dateCloture} — ${addr}`,
+                'Rendez-vous chez le notaire à confirmer.',
+                'Voir', `editTrans('${t.id}')`);
+        }
+    });
+
     // ── Transactions avancées sans date de clôture
     DB.transactions.filter(t => ['acceptee','inspection','notaire'].includes(t.statut) && !t.dateCloture).forEach(t => {
         const prop = DB.proprietes.find(p => p.id === t.propId);
@@ -3209,13 +3510,20 @@ function renderWarnings() {
     </div>`;
 }
 
-function toast(msg, type = '') {
+function toast(msg, type = '', action = null) {
     const c = document.getElementById('toasts');
     const t = document.createElement('div');
     t.className = `toast ${type}`;
     t.textContent = msg;
+    if (action && action.label && typeof action.fn === 'function') {
+        const b = document.createElement('button');
+        b.textContent = action.label;
+        b.style.cssText = 'margin-left:10px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.55);color:inherit;border-radius:6px;padding:2px 10px;cursor:pointer;font-weight:700;font-size:.8rem';
+        b.onclick = () => { t.remove(); action.fn(); };
+        t.appendChild(b);
+    }
     c.appendChild(t);
-    setTimeout(() => t.remove(), 3500);
+    setTimeout(() => t.remove(), action ? 10000 : 3500);
 }
 
 // ── CHIFFREMENT DE LA SYNC CLOUD (AES-256-GCM) ──
@@ -3224,15 +3532,19 @@ function toast(msg, type = '') {
 // phrase secrète (localStorage jmc_sync_pass), la sync cloud est DÉSACTIVÉE.
 let _syncKey = null;
 
+async function deriveKey(pass) {
+    const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: new TextEncoder().encode('jmc-courtier-sync-v1'), iterations: 150000, hash: 'SHA-256' },
+        material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+    );
+}
+
 async function getSyncKey() {
     const pass = localStorage.getItem('jmc_sync_pass');
     if (!pass) return null;
     if (_syncKey) return _syncKey;
-    const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
-    _syncKey = await crypto.subtle.deriveKey(
-        { name: 'PBKDF2', salt: new TextEncoder().encode('jmc-courtier-sync-v1'), iterations: 150000, hash: 'SHA-256' },
-        material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
-    );
+    _syncKey = await deriveKey(pass);
     return _syncKey;
 }
 
@@ -3252,23 +3564,75 @@ function b64ToBuf(b64) {
     return bytes;
 }
 
-async function encryptDB(data) {
-    const key = await getSyncKey();
-    if (!key) return null;
+async function encryptWithKey(key, data) {
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(data)));
     return { v: 1, iv: bufToB64(iv), enc: bufToB64(ct) };
 }
 
-async function decryptDB(payload) {
-    const key = await getSyncKey();
+async function decryptWithKey(key, payload) {
     if (!key || !payload || !payload.enc || !payload.iv) return null;
     try {
         const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64ToBuf(payload.iv) }, key, b64ToBuf(payload.enc));
         return JSON.parse(new TextDecoder().decode(pt));
     } catch (e) {
-        return null; // mauvaise phrase secrète ou données corrompues
+        return null; // mauvais mot de passe ou données corrompues
     }
+}
+
+async function encryptWithPass(data, pass) { return encryptWithKey(await deriveKey(pass), data); }
+async function decryptWithPass(payload, pass) {
+    try { return await decryptWithKey(await deriveKey(pass), payload); } catch (e) { return null; }
+}
+
+async function encryptDB(data) {
+    const key = await getSyncKey();
+    if (!key) return null;
+    return encryptWithKey(key, data);
+}
+
+async function decryptDB(payload) {
+    const key = await getSyncKey();
+    return decryptWithKey(key, payload);
+}
+
+// ── SAUVEGARDE CHIFFRÉE ──
+function askBackupPass(hint, cb) {
+    document.getElementById('backupPassHint').textContent = hint;
+    document.getElementById('backupPassInput').value = '';
+    window._backupPassCb = cb;
+    document.getElementById('modalBackupPass').classList.add('open');
+    setTimeout(() => document.getElementById('backupPassInput').focus(), 60);
+}
+
+function confirmBackupPass() {
+    const v = document.getElementById('backupPassInput').value;
+    if (v.length < 8) { toast('Mot de passe : minimum 8 caractères', 'error'); return; }
+    document.getElementById('modalBackupPass').classList.remove('open');
+    document.getElementById('backupPassInput').value = '';
+    const cb = window._backupPassCb;
+    window._backupPassCb = null;
+    if (cb) cb(v);
+}
+
+async function doExportEncrypted(pass, auto = false) {
+    const payload = await encryptWithPass(DB, pass);
+    payload.kind = 'jmc-backup-chiffre';
+    const a = document.createElement('a');
+    a.href = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(payload));
+    a.download = `jmc_courtier_backup_chiffre_${now().split('T')[0]}.json`;
+    a.click();
+    localStorage.setItem('jmc_last_backup', Date.now().toString());
+    toast(auto ? '💾 Sauvegarde hebdomadaire automatique téléchargée 🔐' : 'Sauvegarde chiffrée téléchargée 🔐', 'success');
+}
+
+function exportEncrypted() {
+    const syncPass = localStorage.getItem('jmc_sync_pass');
+    if (syncPass) { doExportEncrypted(syncPass); return; }
+    askBackupPass(
+        'Choisissez un mot de passe pour chiffrer cette sauvegarde. Il sera exigé pour la restaurer — conservez-le précieusement.',
+        pass => doExportEncrypted(pass)
+    );
 }
 
 function saveSyncPass() {
