@@ -1,1 +1,22 @@
-firebase-config.json 
+# Config Firebase externe (si utilisée)
+firebase-config.json
+
+# Variables d'environnement
+.env
+.env.local
+.env.*.local
+
+# Systèmes d'exploitation
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Éditeurs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*

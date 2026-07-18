@@ -1,4 +1,4 @@
-const CACHE = 'jmc-courtier-v4';
+const CACHE = 'jmc-courtier-v8';
 const ASSETS = [
   'index.html',
   'style.css',
@@ -18,6 +18,10 @@ self.addEventListener('activate', e => e.waitUntil(
 ));
 
 self.addEventListener('fetch', e => {
+  // Seules les requêtes GET sont mises en cache — cache.put() lève une
+  // exception sur les POST (appels API IA, etc.)
+  if (e.request.method !== 'GET') return;
+
   const url = e.request.url;
   const isFontRequest =
     url.includes('fonts.googleapis.com') ||
@@ -43,7 +47,10 @@ self.addEventListener('fetch', e => {
   e.respondWith(
     fetch(e.request)
       .then(r => {
-        if (r.ok) caches.open(CACHE).then(c => c.put(e.request, r.clone()));
+        if (r.ok) {
+          const copy = r.clone();
+          caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
+        }
         return r;
       })
       .catch(() => caches.match(e.request))

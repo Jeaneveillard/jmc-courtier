@@ -51,7 +51,6 @@ function setTranPage(p)    { tranPage   = p; navigate('transactions'); }
 
 // ── AUTHENTIFICATION ──
 // Mots de passe stockés comme hash SHA-256 (crypto.subtle)
-// Mot de passe par défaut : JMC2024!
 const AUTH_USERS = {
     'CourtierJMC': '45ac450809760f5534a968705b22f77fe0786484609952ef0817696daba4d467'
 };
@@ -89,7 +88,8 @@ async function checkPass(user, pass) {
 }
 
 let _loginAttempts = 0;
-let _loginLockUntil = 0;
+// Persisté dans localStorage — sinon un simple rechargement de page contourne le blocage
+let _loginLockUntil = parseInt(localStorage.getItem('jmc_lock_until')) || 0;
 let _loginInProgress = false;
 
 async function tryLogin() {
@@ -127,6 +127,7 @@ async function tryLogin() {
 
             if (_loginAttempts >= 3) {
                 _loginLockUntil = Date.now() + 5 * 60 * 1000;
+                localStorage.setItem('jmc_lock_until', String(_loginLockUntil));
                 _loginAttempts  = 0;
                 err.style.display = 'block';
                 err.innerHTML = '🔒 3 tentatives échouées. Compte bloqué <strong>5 minutes</strong>.';
@@ -164,8 +165,8 @@ async function changePassword() {
         document.getElementById('passActuel').focus();
         return;
     }
-    if (nouveau.length < 4) {
-        toast('Le nouveau mot de passe doit avoir au moins 4 caractères', 'error');
+    if (nouveau.length < 8) {
+        toast('Le nouveau mot de passe doit avoir au moins 8 caractères', 'error');
         return;
     }
     if (nouveau !== confirm) {
@@ -596,8 +597,8 @@ function renderDashboard() {
                 <div class="month">${d.toLocaleString('fr',{month:'short'})}</div>
               </div>
               <div class="visit-info">
-                <strong>${client ? client.prenom + ' ' + client.nom : 'Client inconnu'}</strong>
-                <span>🏠 ${prop ? prop.adresse + ', ' + prop.ville : 'Propriété inconnue'} · ${v.heure || ''}</span>
+                <strong>${client ? esc(client.prenom) + ' ' + esc(client.nom) : 'Client inconnu'}</strong>
+                <span>🏠 ${prop ? esc(prop.adresse) + ', ' + esc(prop.ville) : 'Propriété inconnue'} · ${esc(v.heure || '')}</span>
               </div>
             </div>`;
         }).join('') : `
@@ -621,7 +622,7 @@ function renderDashboard() {
           <thead><tr><th>Nom</th><th>Type</th><th>Statut</th></tr></thead>
           <tbody>${recentClients.map(c => `
             <tr onclick="navigate('clients')" style="cursor:pointer">
-              <td><strong>${c.prenom} ${c.nom}</strong><br><small style="color:#94a3b8">${c.tel || ''}</small></td>
+              <td><strong>${esc(c.prenom)} ${esc(c.nom)}</strong><br><small style="color:#94a3b8">${esc(c.tel || '')}</small></td>
               <td>${badgeType(c.type)}</td>
               <td>${badgeStatut(c.statut)}</td>
             </tr>`).join('')}
@@ -647,8 +648,8 @@ function renderDashboard() {
             const prop = DB.proprietes.find(p=>p.id===t.propId);
             const ach  = DB.clients.find(c=>c.id===t.acheteurId);
             return `<tr onclick="navigate('transactions')" style="cursor:pointer">
-              <td>${prop ? prop.adresse : '—'}</td>
-              <td>${ach ? ach.prenom + ' ' + ach.nom : '—'}</td>
+              <td>${prop ? esc(prop.adresse) : '—'}</td>
+              <td>${ach ? esc(ach.prenom) + ' ' + esc(ach.nom) : '—'}</td>
               <td><strong>${fmtMoney(t.prixOffre)}</strong></td>
               <td>${badgeStatutTrans(t.statut)}</td>
               <td>${t.dateCloture || '—'}</td>
@@ -938,7 +939,8 @@ function saveTache() {
         createdAt:   editingId ? (DB.taches.find(t=>t.id===editingId)?.createdAt || now()) : now()
     };
 
-    if (editingId) {
+    const isEdit = !!editingId;
+    if (isEdit) {
         const idx = DB.taches.findIndex(t => t.id === editingId);
         DB.taches[idx] = tache;
     } else {
@@ -947,7 +949,7 @@ function saveTache() {
     saveDB(); closeModal('modalTache');
     navigate('taches');
     updateBadges();
-    toast(editingId ? 'Tâche modifiée ✅' : 'Tâche ajoutée ✅', 'success');
+    toast(isEdit ? 'Tâche modifiée ✅' : 'Tâche ajoutée ✅', 'success');
 }
 
 function editTache(id) {
@@ -1023,7 +1025,7 @@ function renderPipeline() {
             ? DB.clients.filter(c => c.statut === 'prospect')
             : [];
         const items = col.id === 'prospect'
-            ? prospects.map(c => ({ label: c.prenom + ' ' + c.nom, sub: badgeType(c.type), amount: null }))
+            ? prospects.map(c => ({ label: c.prenom + ' ' + c.nom, sub: c.type || '', amount: null }))
             : trans.map(t => {
                 const prop = DB.proprietes.find(p => p.id === t.propId);
                 const ach  = DB.clients.find(c => c.id === t.acheteurId);
@@ -1345,11 +1347,11 @@ function importBackup(event) {
             if (!confirm(msg)) return;
 
             DB = {
-                clients:      data.clients,
-                proprietes:   data.proprietes,
-                visites:      isArrayOfObjects(data.visites)      ? data.visites      : [],
-                transactions: isArrayOfObjects(data.transactions)  ? data.transactions : [],
-                taches:       isArrayOfObjects(data.taches)        ? data.taches       : []
+                clients:      cleanItems(data.clients),
+                proprietes:   cleanItems(data.proprietes),
+                visites:      cleanItems(data.visites),
+                transactions: cleanItems(data.transactions),
+                taches:       cleanItems(data.taches)
             };
             saveDB();
             navigate('dashboard');
@@ -1367,6 +1369,7 @@ function renderParametres() {
     const saved = JSON.parse(localStorage.getItem('courtier_profile') || '{}');
     const p = { ...(typeof COURTIER_PROFILE !== 'undefined' ? COURTIER_PROFILE : {}), ...saved };
     const permisManquant = !p.permis || p.permis === 'À_COMPLÉTER';
+    const syncActive = !!localStorage.getItem('jmc_sync_pass');
     return `
     ${permisManquant ? `
     <div style="max-width:600px;background:#fff7ed;border:1.5px solid #f97316;border-radius:10px;padding:14px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px">
@@ -1411,6 +1414,27 @@ function renderParametres() {
         <button class="btn btn-primary" onclick="saveAIKey(true)">💾 Enregistrer la clé</button>
         <button class="btn btn-outline btn-sm" onclick="clearAIKey()">🗑 Effacer la clé</button>
       </div>
+    </div>
+    <div class="card" style="max-width:600px;margin-top:20px;border:1px solid ${syncActive ? '#bbf7d0' : '#fde68a'};">
+      <div class="card-title" style="margin-bottom:12px">☁️ Synchronisation cloud chiffrée</div>
+      <p style="font-size:.83rem;color:#64748b;margin-bottom:14px;line-height:1.6">
+        ${syncActive
+            ? '🔒 <strong style="color:#059669">Activée</strong> — vos données sont chiffrées (AES-256) sur cet appareil avant tout envoi dans le cloud. Personne ne peut les lire sans votre phrase secrète.'
+            : '⏸ <strong style="color:#b45309">Désactivée</strong> — vos données restent uniquement sur cet appareil. Pour synchroniser entre plusieurs appareils, définissez une phrase secrète (utilisez exactement la même sur chaque appareil).'}
+      </p>
+      <div class="form-group">
+        <label>Phrase secrète de chiffrement (min. 8 caractères)</label>
+        <input type="password" id="syncPass" placeholder="${syncActive ? '••••••••  (déjà définie)' : 'Ex : une phrase longue et unique'}" />
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="saveSyncPass()">${syncActive ? '🔁 Changer la phrase' : '🔒 Activer la sync chiffrée'}</button>
+        ${syncActive ? `<button class="btn btn-outline" onclick="clearSyncPass()">⏸ Désactiver la sync</button>` : ''}
+        <button class="btn btn-outline" onclick="wipeCloud()" style="color:#991b1b;border-color:#fecaca">🗑 Effacer les données cloud</button>
+      </div>
+      <p style="font-size:.75rem;color:#94a3b8;margin-top:10px;line-height:1.5">
+        ⚠️ Conservez cette phrase précieusement : sans elle, les données du cloud sont indéchiffrables.
+        « Effacer les données cloud » purge les anciennes données non chiffrées du serveur (vos données locales restent intactes).
+      </p>
     </div>
     <div class="card" style="max-width:600px;margin-top:20px;border:1px solid #dbeafe;">
       <div class="card-title" style="margin-bottom:20px">🔐 Changer le mot de passe</div>
@@ -1516,7 +1540,8 @@ function saveClient() {
         createdAt: editingId ? (DB.clients.find(c=>c.id===editingId)?.createdAt || now()) : now()
     };
 
-    if (editingId) {
+    const isEdit = !!editingId;
+    if (isEdit) {
         const idx = DB.clients.findIndex(c => c.id === editingId);
         DB.clients[idx] = client;
     } else {
@@ -1525,7 +1550,7 @@ function saveClient() {
     saveDB(); closeModal('modalClient');
     navigate('clients');
     updateBadges();
-    toast(editingId ? 'Client modifié ✅' : 'Client ajouté ✅', 'success');
+    toast(isEdit ? 'Client modifié ✅' : 'Client ajouté ✅', 'success');
 }
 
 function editClient(id) {
@@ -1585,7 +1610,8 @@ function saveProp() {
         createdAt:       editingId ? (DB.proprietes.find(p=>p.id===editingId)?.createdAt || now()) : now()
     };
 
-    if (editingId) {
+    const isEdit = !!editingId;
+    if (isEdit) {
         const idx = DB.proprietes.findIndex(p => p.id === editingId);
         DB.proprietes[idx] = prop;
     } else {
@@ -1594,7 +1620,7 @@ function saveProp() {
     saveDB(); closeModal('modalProp');
     navigate('proprietes');
     updateBadges();
-    toast(editingId ? 'Propriété modifiée ✅' : 'Propriété ajoutée ✅', 'success');
+    toast(isEdit ? 'Propriété modifiée ✅' : 'Propriété ajoutée ✅', 'success');
 }
 
 function editProp(id) {
@@ -1628,12 +1654,13 @@ function saveVisite() {
     const propId   = document.getElementById('vProp').value;
     const date     = document.getElementById('vDate').value;
     if (!clientId || !propId || !date) { toast('Client, propriété et date requis', 'error'); return; }
+    if (!validDate(date)) { toast('Format de date invalide', 'error'); return; }
 
     DB.visites.push({
         id: uid(),
         clientId, propId, date,
-        heure: document.getElementById('vHeure').value,
-        notes: document.getElementById('vNotes').value.trim(),
+        heure: sanitize(document.getElementById('vHeure').value, 5),
+        notes: sanitize(document.getElementById('vNotes').value, LIMITS.notes),
         createdAt: now()
     });
     saveDB(); closeModal('modalVisite');
@@ -1662,7 +1689,8 @@ function saveTrans() {
         createdAt: editingId ? (DB.transactions.find(t=>t.id===editingId)?.createdAt || now()) : now()
     };
 
-    if (editingId) {
+    const isEdit = !!editingId;
+    if (isEdit) {
         const idx = DB.transactions.findIndex(t => t.id === editingId);
         DB.transactions[idx] = trans;
     } else {
@@ -1670,7 +1698,7 @@ function saveTrans() {
     }
     saveDB(); closeModal('modalTrans');
     navigate('transactions');
-    toast(editingId ? 'Transaction modifiée ✅' : 'Transaction enregistrée ✅', 'success');
+    toast(isEdit ? 'Transaction modifiée ✅' : 'Transaction enregistrée ✅', 'success');
 }
 
 function editTrans(id) {
@@ -1884,7 +1912,7 @@ function initAIResize() {
 function addAIMessage(text, role) {
     const el = document.createElement('div');
     el.className = `msg msg-${role}`;
-    el.innerHTML = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+    el.innerHTML = esc(text).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
     document.getElementById('aiMessages').appendChild(el);
     document.getElementById('aiMessages').scrollTop = 99999;
 }
@@ -1982,10 +2010,10 @@ async function sendAI() {
             for (const m of MODELS_TO_TRY) {
                 try {
                     const res = await fetch(
-                        `https://generativelanguage.googleapis.com/${m.api}/models/${m.id}:generateContent?key=${key}`,
+                        `https://generativelanguage.googleapis.com/${m.api}/models/${m.id}:generateContent`,
                         {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
                             body: JSON.stringify({
                                 contents: [{ role: 'user', parts: [{ text: systemPrompt + '\n\n' + text }] }]
                             })
@@ -2083,7 +2111,7 @@ async function sendAI() {
 
         } else if (provider === 'anthropic') {
             // Essaie Sonnet d'abord, repli sur Haiku si quota dépassé
-            const CLAUDE_MODELS = ['claude-sonnet-4-6', 'claude-haiku-4-5-20251001'];
+            const CLAUDE_MODELS = ['claude-sonnet-5', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'];
             let claudeOk = false;
 
             for (const model of CLAUDE_MODELS) {
@@ -2108,7 +2136,8 @@ async function sendAI() {
                     claudeOk = true;
                     break;
                 }
-                if (res.status !== 429 && res.status !== 529) {
+                // 404 = modèle inconnu pour cette clé → essayer le modèle suivant
+                if (res.status !== 429 && res.status !== 529 && res.status !== 404) {
                     thinking.innerHTML = `❌ Erreur Claude (${res.status}) : ${esc(d.error?.message || JSON.stringify(d))}`;
                     return;
                 }
@@ -2128,9 +2157,175 @@ async function sendAI() {
 }
 
 // ── CENTRIS ──
+// Portails de connexion — le mot de passe n'est JAMAIS stocké dans l'app :
+// la connexion se fait sur le site Centris, via le gestionnaire du navigateur.
+const CENTRIS_PORTALS = {
+    matrix:  { label: 'Matrix — Système MLS courtiers', url: 'https://matrix.centris.ca' },
+    centris: { label: 'Centris.ca — Site public',       url: 'https://www.centris.ca/fr' },
+    custom:  { label: 'Autre portail (URL personnalisée)…', url: '' }
+};
+
+function saveCentrisAccount(silent = false) {
+    const user   = sanitize(document.getElementById('centrisUser')?.value, LIMITS.email);
+    const portal = CENTRIS_PORTALS[document.getElementById('centrisPortal')?.value] ? document.getElementById('centrisPortal').value : 'matrix';
+    const custom = sanitize(document.getElementById('centrisCustomUrl')?.value, LIMITS.url);
+    if (portal === 'custom' && custom && !/^https:\/\//i.test(custom)) {
+        toast('L\'URL du portail doit commencer par https://', 'error');
+        return false;
+    }
+    localStorage.setItem('jmc_centris_user',   user);
+    localStorage.setItem('jmc_centris_portal', portal);
+    localStorage.setItem('jmc_centris_url',    custom);
+    if (!silent) toast('Compte Centris enregistré ✅', 'success');
+    return true;
+}
+
+function onCentrisPortalChange(sel) {
+    const wrap = document.getElementById('centrisCustomUrlWrap');
+    if (wrap) wrap.style.display = sel.value === 'custom' ? '' : 'none';
+}
+
+function openCentrisPortal() {
+    if (!saveCentrisAccount(true)) return;
+    const portal = localStorage.getItem('jmc_centris_portal') || 'matrix';
+    const url = portal === 'custom'
+        ? (localStorage.getItem('jmc_centris_url') || CENTRIS_PORTALS.matrix.url)
+        : CENTRIS_PORTALS[portal].url;
+    window.open(url, '_blank');
+    toast('Portail Centris ouvert — connectez-vous dans le nouvel onglet', 'success');
+}
+
+function copyCentrisUser() {
+    const v = document.getElementById('centrisUser')?.value.trim();
+    if (!v) { toast('Aucun identifiant à copier', 'error'); return; }
+    if (!navigator.clipboard) { toast('Copie non disponible dans ce navigateur', 'error'); return; }
+    navigator.clipboard.writeText(v).then(
+        () => toast('Identifiant copié 📋', 'success'),
+        () => toast('Impossible de copier', 'error')
+    );
+}
+
+// Ouvre la fiche Centris d'une propriété du CRM (lien direct, ou numéro copié)
+function voirSurCentris(id) {
+    const p = DB.proprietes.find(x => x.id === id);
+    if (!p) return;
+    if (p.lienCentris) { window.open(p.lienCentris, '_blank'); return; }
+    if (p.centrisNo) {
+        if (navigator.clipboard) navigator.clipboard.writeText(p.centrisNo).catch(() => {});
+        window.open('https://www.centris.ca/fr/propriete~a-vendre', '_blank');
+        toast(`No ${p.centrisNo} copié 📋 — collez-le dans la recherche Centris`, 'success');
+    }
+}
+
+// Coller un lien Centris → ouvre la fiche propriété préremplie (lien + no MLS)
+function importCentrisLink() {
+    const url = (document.getElementById('centrisImportUrl')?.value || '').trim();
+    if (!/^https:\/\/(www\.)?centris\.ca\//i.test(url)) {
+        toast('Collez un lien Centris valide (https://www.centris.ca/...)', 'error');
+        return;
+    }
+    const m = url.match(/(\d{7,10})(?:[/?#]|$)/);
+    openModal('modalProp', true);
+    document.getElementById('pLienCentris').value = url.slice(0, LIMITS.url);
+    if (m) document.getElementById('pCentrisNo').value = m[1];
+    toast('Fiche préremplie — complétez adresse, ville et prix', 'success');
+}
+
 function renderCentris() {
     const c = document.getElementById('content');
+    const ctUser   = localStorage.getItem('jmc_centris_user')   || '';
+    const ctPortal = localStorage.getItem('jmc_centris_portal') || 'matrix';
+    const ctUrl    = localStorage.getItem('jmc_centris_url')    || '';
+
+    const today = new Date().toISOString().split('T')[0];
+    const in7days = new Date(Date.now() + 7*24*60*60*1000).toISOString().split('T')[0];
+    const mesInscriptions = DB.proprietes.filter(p => p.centrisNo || p.lienCentris);
+    const inscriptionsRows = mesInscriptions.map(p => {
+        const expireSoon = p.statut === 'actif' && p.dateExpiration && p.dateExpiration >= today && p.dateExpiration <= in7days;
+        const expired    = p.statut === 'actif' && p.dateExpiration && p.dateExpiration < today;
+        return `
+        <tr>
+          <td><strong>${esc(p.adresse)}</strong><br><small style="color:#94a3b8">${esc(p.ville)}</small></td>
+          <td>${p.centrisNo ? `<code style="background:var(--light);padding:2px 6px;border-radius:4px;font-size:.82rem">${esc(p.centrisNo)}</code>` : '<span style="color:#94a3b8">—</span>'}</td>
+          <td><strong>${fmtMoney(p.prix)}</strong></td>
+          <td>${badgeStatutProp(p.statut)}</td>
+          <td style="${expired ? 'color:#dc2626;font-weight:700' : expireSoon ? 'color:#d97706;font-weight:600' : ''}">
+            ${p.dateExpiration ? `${expired ? '⚠️ ' : expireSoon ? '⏳ ' : ''}${esc(p.dateExpiration)}` : '—'}
+          </td>
+          <td style="white-space:nowrap">
+            <button class="btn btn-primary btn-sm" onclick="voirSurCentris('${p.id}')" title="Ouvrir la fiche sur Centris">↗ Centris</button>
+            <button class="btn btn-outline btn-sm" onclick="editProp('${p.id}')">✏️</button>
+          </td>
+        </tr>`;
+    }).join('');
+
     c.innerHTML = `
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-header">
+        <span class="card-title">👤 Mon compte Centris</span>
+        <span style="font-size:.75rem;color:var(--gray)">🔒 Mot de passe jamais stocké dans l'application</span>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Identifiant / courriel Centris</label>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="centrisUser" value="${esc(ctUser)}" placeholder="votre.courriel@exemple.com" maxlength="120" style="flex:1" />
+            <button class="btn btn-outline" onclick="copyCentrisUser()" title="Copier l'identifiant">📋</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Portail de connexion</label>
+          <select id="centrisPortal" onchange="onCentrisPortalChange(this)">
+            ${Object.entries(CENTRIS_PORTALS).map(([k, p]) =>
+                `<option value="${k}" ${k === ctPortal ? 'selected' : ''}>${p.label}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="form-group" id="centrisCustomUrlWrap" style="display:${ctPortal === 'custom' ? '' : 'none'}">
+        <label>URL du portail personnalisé</label>
+        <input type="url" id="centrisCustomUrl" value="${esc(ctUrl)}" placeholder="https://..." maxlength="300" />
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px">
+        <button class="btn btn-primary" onclick="openCentrisPortal()">🔑 Ouvrir mon portail Centris</button>
+        <button class="btn btn-outline" onclick="saveCentrisAccount()">💾 Enregistrer</button>
+      </div>
+      <div style="margin-top:12px;padding:10px 12px;background:var(--light);border-radius:8px;font-size:.8rem;color:var(--gray);line-height:1.6">
+        💡 Le portail s'ouvre dans un nouvel onglet : entrez-y votre mot de passe et laissez votre
+        <strong>navigateur</strong> le mémoriser (Chrome/Edge : « Enregistrer le mot de passe »).
+        Aux visites suivantes, un clic sur « 🔑 Ouvrir » + remplissage automatique = accès direct à votre compte.
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-header">
+        <span class="card-title">📋 Mes inscriptions Centris (${mesInscriptions.length})</span>
+        <button class="btn btn-outline btn-sm" onclick="navigate('proprietes')">Voir toutes les propriétés</button>
+      </div>
+      ${mesInscriptions.length ? `
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Propriété</th><th>No Centris</th><th>Prix</th><th>Statut</th><th>Expiration</th><th>Actions</th></tr></thead>
+          <tbody>${inscriptionsRows}</tbody>
+        </table>
+      </div>` : `
+      <div class="empty" style="padding:20px 0">
+        <div class="icon">📋</div>
+        <h3>Aucune propriété liée à Centris</h3>
+        <p>Ajoutez le numéro Centris ou le lien à vos propriétés, ou importez une fiche ci-dessous.</p>
+      </div>`}
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--gray2)">
+        <label style="display:block;font-size:.82rem;font-weight:600;color:#1e293b;margin-bottom:6px">
+          ⚡ Import rapide — collez un lien Centris pour créer la fiche dans le CRM
+        </label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input type="url" id="centrisImportUrl" placeholder="https://www.centris.ca/fr/maison~a-vendre~terrebonne/12345678"
+            maxlength="300" style="flex:1;min-width:240px"
+            onkeydown="if(event.key==='Enter') importCentrisLink()" />
+          <button class="btn btn-gold" onclick="importCentrisLink()">📥 Importer</button>
+        </div>
+      </div>
+    </div>
+
     <div class="grid-2" style="margin-bottom:20px;">
       <div class="card">
         <div class="card-title" style="margin-bottom:16px">🔎 Filtres de recherche</div>
@@ -2258,33 +2453,6 @@ function renderCentris() {
         Centris utilise un système de recherche interne qui ne supporte pas les paramètres URL pour le prix et les chambres. Sélectionnez ville + type ici, puis affinez sur Centris.
       </div>
     </div>`;
-
-    // Vérifie si iframe charge après 3 secondes
-    setTimeout(() => {
-        const frame = document.getElementById('centrisFrame');
-        if (!frame) return;
-        try {
-            // Si bloqué, le contentDocument sera inaccessible
-            const doc = frame.contentDocument || frame.contentWindow?.document;
-            if (!doc || doc.title === '') showCentrisFallback();
-        } catch {
-            showCentrisFallback();
-        }
-    }, 3000);
-}
-
-function checkCentrisLoad(iframe) {
-    try {
-        const doc = iframe.contentDocument || iframe.contentWindow?.document;
-        if (!doc || doc.body === null) showCentrisFallback();
-    } catch { showCentrisFallback(); }
-}
-
-function showCentrisFallback() {
-    const frame    = document.getElementById('centrisFrame');
-    const fallback = document.getElementById('centrisFallback');
-    if (frame)    frame.style.display    = 'none';
-    if (fallback) fallback.style.display = 'flex';
 }
 
 function searchCentris() {
@@ -2307,11 +2475,6 @@ function openCentrisMap() {
     if (ville) url += `~${ville}`;
     url += '?view=Map';
     window.open(url, '_blank');
-}
-
-function reloadCentrisFrame() {
-    const frame = document.getElementById('centrisFrame');
-    if (frame) { frame.src = frame.src; }
 }
 
 // ── MESSAGERIE COURTIERS ──
@@ -2351,6 +2514,9 @@ function renderMessagerieSetup() {
         <p style="color:var(--gray);font-size:.78rem;margin-top:16px">
           Connexion automatique au canal JMC Courtier
         </p>
+        <p style="color:#b45309;font-size:.75rem;margin-top:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;line-height:1.5">
+          ⚠️ Canal partagé <strong>non chiffré</strong> — n'y écrivez aucun renseignement personnel de client (nom complet, coordonnées, situation financière).
+        </p>
       </div>
     </div>`;
 }
@@ -2385,7 +2551,7 @@ function renderMessagerieChat() {
         <div style="padding:14px 18px;border-bottom:1px solid var(--gray2);display:flex;align-items:center;justify-content:space-between;">
           <div>
             <strong style="color:var(--navy)">💬 Canal général — Courtiers JMC</strong>
-            <div style="font-size:.78rem;color:var(--gray);margin-top:2px">Messages en temps réel</div>
+            <div style="font-size:.78rem;color:var(--gray);margin-top:2px">Messages en temps réel · ⚠️ non chiffré — aucun renseignement personnel de client</div>
           </div>
           <div style="display:flex;gap:8px;align-items:center;">
             <span id="chatStatus" style="font-size:.78rem;color:var(--green)">● Connecté</span>
@@ -2638,7 +2804,13 @@ function exportCSV(table) {
     const data = DB[table];
     if (!data.length) { toast('Aucune donnée à exporter', 'error'); return; }
     const keys = Object.keys(data[0]);
-    const csv  = [keys.join(','), ...data.map(r => keys.map(k => `"${(r[k]||'').toString().replace(/"/g,'""')}"`).join(','))].join('\n');
+    // Préfixe ' devant =, +, -, @ : bloque l'injection de formules dans Excel
+    const cell = v => {
+        let s = (v ?? '').toString();
+        if (/^[=+\-@]/.test(s)) s = "'" + s;
+        return `"${s.replace(/"/g,'""')}"`;
+    };
+    const csv  = [keys.join(','), ...data.map(r => keys.map(k => cell(r[k])).join(','))].join('\n');
     const a = document.createElement('a');
     a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
     a.download = `courtier_${table}_${now().split('T')[0]}.csv`;
@@ -2689,6 +2861,14 @@ function setTab(el) {
 
 function uid()  { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
 function now()  { return new Date().toISOString(); }
+
+// Filtre défensif : les ids sont injectés dans des attributs onclick (editClient('id')...).
+// Toute donnée venant de Firebase ou d'un import doit avoir un id alphanumérique valide.
+function cleanItems(arr) {
+    return (Array.isArray(arr) ? arr : []).filter(x =>
+        x && typeof x === 'object' && typeof x.id === 'string' && /^[a-z0-9]+$/i.test(x.id)
+    );
+}
 
 // ── VALIDATION ──
 const LIMITS = { name: 80, text: 300, notes: 2000, email: 120, tel: 30, address: 150, url: 300 };
@@ -2856,6 +3036,23 @@ function getWarnings() {
         if (!dismissed.has(id)) warnings.push({ id, type, icon, title, detail, actionLabel, actionFn });
     };
 
+    // ── Mot de passe par défaut toujours actif
+    const authUser = sessionStorage.getItem('jmc_user') || 'CourtierJMC';
+    if (AUTH_USERS[authUser] && getPassHash(authUser) === AUTH_USERS[authUser]) {
+        add('pass_defaut', 'error', '🔐',
+            'Mot de passe par défaut toujours actif',
+            'Le mot de passe d\'origine est connu publiquement (code source). Changez-le maintenant.',
+            'Changer', `navigate('parametres')`);
+    }
+
+    // ── Sync cloud désactivée (aucune phrase secrète)
+    if (!localStorage.getItem('jmc_sync_pass')) {
+        add('sync_off', 'info', '☁️',
+            'Synchronisation cloud désactivée',
+            'Vos données restent sur cet appareil. Définissez une phrase secrète pour activer la sync chiffrée.',
+            'Configurer', `navigate('parametres')`);
+    }
+
     // ── Tâches en retard
     const enRetard = DB.taches.filter(t => t.statut !== 'done' && t.echeance && t.echeance < today);
     if (enRetard.length) {
@@ -3021,19 +3218,103 @@ function toast(msg, type = '') {
     setTimeout(() => t.remove(), 3500);
 }
 
+// ── CHIFFREMENT DE LA SYNC CLOUD (AES-256-GCM) ──
+// La base Firebase est lisible publiquement (pas d'Auth possible sur ce projet).
+// Les données CRM sont donc chiffrées côté client avant tout envoi : sans la
+// phrase secrète (localStorage jmc_sync_pass), la sync cloud est DÉSACTIVÉE.
+let _syncKey = null;
+
+async function getSyncKey() {
+    const pass = localStorage.getItem('jmc_sync_pass');
+    if (!pass) return null;
+    if (_syncKey) return _syncKey;
+    const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+    _syncKey = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: new TextEncoder().encode('jmc-courtier-sync-v1'), iterations: 150000, hash: 'SHA-256' },
+        material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+    );
+    return _syncKey;
+}
+
+function bufToB64(buf) {
+    const bytes = new Uint8Array(buf);
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+        s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(s);
+}
+
+function b64ToBuf(b64) {
+    const s = atob(b64);
+    const bytes = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
+    return bytes;
+}
+
+async function encryptDB(data) {
+    const key = await getSyncKey();
+    if (!key) return null;
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(data)));
+    return { v: 1, iv: bufToB64(iv), enc: bufToB64(ct) };
+}
+
+async function decryptDB(payload) {
+    const key = await getSyncKey();
+    if (!key || !payload || !payload.enc || !payload.iv) return null;
+    try {
+        const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64ToBuf(payload.iv) }, key, b64ToBuf(payload.enc));
+        return JSON.parse(new TextDecoder().decode(pt));
+    } catch (e) {
+        return null; // mauvaise phrase secrète ou données corrompues
+    }
+}
+
+function saveSyncPass() {
+    const v = document.getElementById('syncPass')?.value.trim();
+    if (!v || v.length < 8) { toast('Phrase secrète : minimum 8 caractères', 'error'); return; }
+    localStorage.setItem('jmc_sync_pass', v);
+    _syncKey = null;
+    toast('Synchronisation chiffrée activée ✅', 'success');
+    initFirebaseSync();
+    saveDB(); // pousse une première version chiffrée
+    renderPage('parametres');
+}
+
+function clearSyncPass() {
+    if (!confirm('Désactiver la synchronisation cloud ?\n\nVos données resteront uniquement sur cet appareil.')) return;
+    localStorage.removeItem('jmc_sync_pass');
+    _syncKey = null;
+    if (_crmUnsub) { try { _crmUnsub(); } catch(e) {} _crmUnsub = null; }
+    setSyncStatus('nokey');
+    toast('Synchronisation cloud désactivée', 'success');
+    renderPage('parametres');
+}
+
+function wipeCloud() {
+    if (!window._fbReady || !window._fbSaveCRM) { toast('Firebase non connecté', 'error'); return; }
+    if (!confirm('Effacer les données CRM stockées dans le cloud ?\n\nVos données locales restent intactes. Utile pour purger les anciennes données non chiffrées.')) return;
+    window._fbSaveCRM(null)
+        .then(() => toast('Données cloud effacées ✅', 'success'))
+        .catch(() => toast('Erreur — impossible d\'effacer les données cloud', 'error'));
+}
+
 // ── PERSISTENCE ──
 let _syncTimeout = null;
+let _crmUnsub = null;
 
 function saveDB() {
     localStorage.setItem('courtier_db', JSON.stringify(DB));
     // Sync Firebase avec debounce 2s pour éviter les écriture en rafale
     if (_syncTimeout) clearTimeout(_syncTimeout);
-    _syncTimeout = setTimeout(() => {
-        if (window._fbReady && window._fbSaveCRM) {
-            window._fbSaveCRM(DB)
-                .then(() => setSyncStatus('sync'))
-                .catch(() => setSyncStatus('error'));
-        }
+    _syncTimeout = setTimeout(async () => {
+        if (!window._fbReady || !window._fbSaveCRM) return;
+        const payload = await encryptDB(DB);
+        if (!payload) { setSyncStatus('nokey'); return; } // pas de phrase secrète → jamais de données en clair dans le cloud
+        window._fbSaveCRM(payload)
+            .then(() => setSyncStatus('sync'))
+            .catch(() => setSyncStatus('error'));
     }, 2000);
 }
 
@@ -3041,40 +3322,61 @@ function setSyncStatus(status) {
     const el = document.getElementById('syncIndicator');
     if (!el) return;
     const map = {
-        sync:    { text: '⬤ Sync', color: '#10b981' },
+        sync:    { text: '⬤ Sync 🔒', color: '#10b981', title: 'Synchronisation chiffrée active' },
         syncing: { text: '↻ Sync…', color: '#f59e0b' },
         error:   { text: '⬤ Local', color: '#ef4444', title: 'Sync Firebase indisponible — données sauvegardées localement' },
+        nokey:   { text: '⬤ Local', color: '#94a3b8', title: 'Sync cloud désactivée — définissez une phrase secrète dans Paramètres pour activer la synchronisation chiffrée' },
+        badkey:  { text: '⬤ Clé ?', color: '#ef4444', title: 'Phrase secrète incorrecte — impossible de déchiffrer les données cloud' },
         local:   { text: '⬤ Local', color: '#94a3b8' }
     };
     const s = map[status] || map.local;
     el.textContent = s.text;
     el.style.color = s.color;
-    if (s.title) el.title = s.title;
+    el.title = s.title || 'Statut de synchronisation';
 }
 
 function initFirebaseSync() {
+    if (_crmUnsub) { try { _crmUnsub(); } catch(e) {} _crmUnsub = null; }
     if (!window._fbReady || !window._fbListenCRM) {
         setSyncStatus('local');
         return;
     }
+    // Sans phrase secrète : aucune lecture/écriture cloud — localStorage uniquement
+    if (!localStorage.getItem('jmc_sync_pass')) {
+        setSyncStatus('nokey');
+        return;
+    }
     setSyncStatus('syncing');
-    window._fbListenCRM(snapshot => {
+    _crmUnsub = window._fbListenCRM(async snapshot => {
         const remote = snapshot.val();
         if (!remote) {
-            // Première connexion : pousser les données locales
+            // Première connexion : pousser les données locales (chiffrées)
             if (DB.clients.length || DB.proprietes.length) {
-                window._fbSaveCRM(DB).catch(() => {});
+                const payload = await encryptDB(DB);
+                if (payload) window._fbSaveCRM(payload).catch(() => {});
             }
             setSyncStatus('sync');
             return;
         }
+
+        // Nouveau format chiffré, ou ancien format en clair (migration)
+        let remoteData = null;
+        let isLegacy   = false;
+        if (remote.enc && remote.iv) {
+            remoteData = await decryptDB(remote);
+            if (!remoteData) { setSyncStatus('badkey'); return; }
+        } else {
+            remoteData = remote;
+            isLegacy   = true;
+        }
+
         // Fusionner : Firebase gagne (données les plus récentes)
         const merged = {
-            clients:      Array.isArray(remote.clients)      ? remote.clients      : DB.clients,
-            proprietes:   Array.isArray(remote.proprietes)   ? remote.proprietes   : DB.proprietes,
-            visites:      Array.isArray(remote.visites)       ? remote.visites      : DB.visites,
-            transactions: Array.isArray(remote.transactions)  ? remote.transactions : DB.transactions,
-            taches:       Array.isArray(remote.taches)        ? remote.taches       : DB.taches
+            clients:      Array.isArray(remoteData.clients)      ? cleanItems(remoteData.clients)      : DB.clients,
+            proprietes:   Array.isArray(remoteData.proprietes)   ? cleanItems(remoteData.proprietes)   : DB.proprietes,
+            visites:      Array.isArray(remoteData.visites)       ? cleanItems(remoteData.visites)      : DB.visites,
+            transactions: Array.isArray(remoteData.transactions)  ? cleanItems(remoteData.transactions) : DB.transactions,
+            taches:       Array.isArray(remoteData.taches)        ? cleanItems(remoteData.taches)       : DB.taches
         };
         const localJson  = JSON.stringify(DB);
         const remoteJson = JSON.stringify(merged);
@@ -3083,6 +3385,12 @@ function initFirebaseSync() {
             localStorage.setItem('courtier_db', remoteJson);
             renderPage(currentPage);
             updateBadges();
+        }
+        // Anciennes données en clair dans le cloud → remplacées immédiatement
+        // par la version chiffrée (purge le PII exposé)
+        if (isLegacy) {
+            const payload = await encryptDB(merged);
+            if (payload) window._fbSaveCRM(payload).catch(() => {});
         }
         setSyncStatus('sync');
     });
@@ -3094,11 +3402,11 @@ function loadDB() {
         try {
             const parsed = JSON.parse(saved);
             DB = {
-                clients:      Array.isArray(parsed.clients)      ? parsed.clients      : [],
-                proprietes:   Array.isArray(parsed.proprietes)   ? parsed.proprietes   : [],
-                visites:      Array.isArray(parsed.visites)       ? parsed.visites      : [],
-                transactions: Array.isArray(parsed.transactions)  ? parsed.transactions : [],
-                taches:       Array.isArray(parsed.taches)        ? parsed.taches       : []
+                clients:      cleanItems(parsed.clients),
+                proprietes:   cleanItems(parsed.proprietes),
+                visites:      cleanItems(parsed.visites),
+                transactions: cleanItems(parsed.transactions),
+                taches:       cleanItems(parsed.taches)
             };
         } catch(e) {
             console.warn('Données corrompues, réinitialisation.', e);

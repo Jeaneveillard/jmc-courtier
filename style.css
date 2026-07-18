@@ -388,11 +388,47 @@ textarea { resize: vertical; min-height: 90px; }
 
 /* ── AI PANEL ── */
 .ai-panel {
-    width: 340px; min-width: 340px;
+    flex: 0 0 340px;
+    min-width: 220px;
+    max-width: 700px;
     background: var(--white);
     border-left: 1px solid var(--gray2);
     display: flex; flex-direction: column;
-    transition: transform .3s;
+    position: relative;
+    overflow: hidden;
+}
+
+.ai-resize-handle {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 10px;
+    cursor: col-resize;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    transition: background .15s;
+}
+
+.ai-resize-handle:hover,
+.ai-resize-handle.dragging {
+    background: rgba(26,86,219,.18);
+}
+
+.ai-resize-handle::after {
+    content: '';
+    display: block;
+    width: 3px;
+    height: 36px;
+    border-radius: 3px;
+    background: var(--gray2);
+    transition: background .15s;
+}
+
+.ai-resize-handle:hover::after,
+.ai-resize-handle.dragging::after {
+    background: var(--blue);
 }
 
 .ai-panel.hidden { display: none; }
