@@ -128,7 +128,7 @@ npx serve .
 python -m http.server 8080
 ```
 
-The Service Worker (`sw.js`) caches all five assets (`index.html`, `style.css`, `app.js`, `config.js`, `manifest.json`) for offline use. Cache version is `jmc-courtier-v9` — bump it in `sw.js` after any asset change to force cache invalidation on users' browsers. Only GET requests are intercepted/cached (POST API calls pass through untouched).
+The Service Worker (`sw.js`) caches all five assets (`index.html`, `style.css`, `app.js`, `config.js`, `manifest.json`) for offline use. Cache version is `jmc-courtier-v10` — bump it in `sw.js` after any asset change to force cache invalidation on users' browsers. Only GET requests are intercepted/cached (POST API calls pass through untouched).
 
 ## Architecture
 
@@ -161,7 +161,7 @@ let DB = { clients, proprietes, visites, transactions, taches }
 
 ### Authentication (`app.js` ~line 52)
 
-Client-side only. Passwords are stored as SHA-256 hashes (`crypto.subtle`) in `AUTH_USERS` — never document the plaintext password in code or docs. Override stored in `localStorage` as `jmc_pass_<user>` (JSON string hash); minimum 8 characters. A dashboard warning fires while the well-known default password is still active. Session flag `sessionStorage.jmc_auth = '1'` gates access. Brute-force lock: 3 failed attempts → 5-minute lockout, persisted in `localStorage.jmc_lock_until` so a page reload does not bypass it. Temp-password flow uses `mailto:` to open the email client.
+Client-side only. The default account hash in `AUTH_USERS` is unsalted SHA-256 (legacy) — never document the plaintext password in code or docs. User-set passwords are stored in `localStorage` as `jmc_pass_<user>` in **v2 format**: `{v:2, salt, iter, hash}` — PBKDF2-SHA-256, 150k iterations, random salt (`hashPassV2`); minimum 8 characters. `checkPass` accepts v2 objects, legacy SHA-256 strings, and the default hash. A dashboard warning fires while no custom password is saved (default still active). Session flag `sessionStorage.jmc_auth = '1'` gates access. Brute-force lock: 3 failed attempts → 5-minute lockout, persisted in `localStorage.jmc_lock_until` so a page reload does not bypass it. Temp-password flow uses `mailto:` to open the email client.
 
 ### Navigation & rendering (`app.js` ~line 422)
 
@@ -185,6 +185,12 @@ Right-side sliding panel. Supports five providers: **OpenRouter**, **Groq**, **A
 | `calcCommission(prix)` | ~line 2744 | Commission estimate from sale price |
 | `openModal(id, isNew)` | ~line 1428 | Show modal, optionally reset fields |
 | `updateBadges()` | — | Refresh sidebar count badges |
+
+### Hardening
+
+- **CSP** (meta tag in `index.html`): `connect-src` is an allowlist — Firebase (`*.firebaseio.com`, ws + https), Google APIs/fonts, and the five AI providers only. Adding a new external API requires extending it. `'unsafe-inline'` is required (inline module + onclick handlers).
+- **All `window.open` calls pass `'noopener'`** — keep this for any new external link (prevents reverse tabnabbing).
+- A frame-buster at the top of `app.js` refuses to run inside an iframe.
 
 ## Important conventions
 

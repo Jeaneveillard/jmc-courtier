@@ -1,4 +1,4 @@
-const CACHE = 'jmc-courtier-v9';
+const CACHE = 'jmc-courtier-v10';
 const ASSETS = [
   'index.html',
   'style.css',

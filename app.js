@@ -60,15 +60,13 @@ async function hashPass(pass) {
     return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-function getPassHash(user) {
-    const saved = localStorage.getItem('jmc_pass_' + user);
-    if (saved) {
-        try {
-            const parsed = JSON.parse(saved);
-            if (typeof parsed === 'string') return parsed;
-        } catch(e) {}
-    }
-    return AUTH_USERS[user];
+// Hachage v2 : PBKDF2 avec sel aléatoire — résiste aux tables précalculées
+// (le hash SHA-256 du mot de passe par défaut est public dans le dépôt)
+async function hashPassV2(pass, saltB64 = null, iterations = 150000) {
+    const salt = saltB64 ? b64ToBuf(saltB64) : crypto.getRandomValues(new Uint8Array(16));
+    const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveBits']);
+    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, material, 256);
+    return { v: 2, salt: bufToB64(salt), iter: iterations, hash: bufToB64(bits) };
 }
 
 async function checkPass(user, pass) {
@@ -83,8 +81,18 @@ async function checkPass(user, pass) {
             }
         } catch(e) {}
     }
-    const hash = await hashPass(pass);
-    return hash === getPassHash(user);
+    const saved = localStorage.getItem('jmc_pass_' + user);
+    if (saved) {
+        try {
+            const parsed = JSON.parse(saved);
+            if (parsed && typeof parsed === 'object' && parsed.v === 2 && parsed.salt && parsed.hash) {
+                const h = await hashPassV2(pass, parsed.salt, parsed.iter || 150000);
+                return h.hash === parsed.hash;
+            }
+            if (typeof parsed === 'string') return (await hashPass(pass)) === parsed; // ancien format SHA-256
+        } catch(e) {}
+    }
+    return (await hashPass(pass)) === AUTH_USERS[user];
 }
 
 let _loginAttempts = 0;
@@ -176,7 +184,7 @@ async function changePassword() {
         return;
     }
 
-    const hash = await hashPass(nouveau);
+    const hash = await hashPassV2(nouveau);
     localStorage.setItem('jmc_pass_' + user, JSON.stringify(hash));
 
     document.getElementById('passActuel').value  = '';
@@ -356,7 +364,7 @@ function sendTempPassword() {
         `Connectez-vous et changez votre mot de passe immédiatement dans Paramètres.\n\n` +
         `JMC Courtier`
     );
-    window.open(`mailto:${email}?subject=${sujet}&body=${corps}`, '_blank');
+    window.open(`mailto:${email}?subject=${sujet}&body=${corps}`, '_blank', 'noopener');
 
     document.getElementById('forgotMsg').innerHTML = `
         ✅ Email ouvert vers <strong>${esc(email)}</strong>.<br>
@@ -370,6 +378,11 @@ function sendTempPassword() {
 }
 
 // ── INIT ──
+// Anti-clickjacking : refuse de tourner dans une iframe
+if (window.top !== window.self) {
+    try { window.top.location = window.self.location; } catch(e) { document.body.innerHTML = ''; }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     if (sessionStorage.getItem('jmc_auth') !== '1') {
         document.getElementById('loginScreen').style.display = 'flex';
@@ -2467,7 +2480,7 @@ function openCentrisPortal() {
     const url = portal === 'custom'
         ? (localStorage.getItem('jmc_centris_url') || CENTRIS_PORTALS.matrix.url)
         : CENTRIS_PORTALS[portal].url;
-    window.open(url, '_blank');
+    window.open(url, '_blank', 'noopener');
     toast('Portail Centris ouvert — connectez-vous dans le nouvel onglet', 'success');
 }
 
@@ -2485,10 +2498,10 @@ function copyCentrisUser() {
 function voirSurCentris(id) {
     const p = DB.proprietes.find(x => x.id === id);
     if (!p) return;
-    if (p.lienCentris) { window.open(p.lienCentris, '_blank'); return; }
+    if (p.lienCentris) { window.open(p.lienCentris, '_blank', 'noopener'); return; }
     if (p.centrisNo) {
         if (navigator.clipboard) navigator.clipboard.writeText(p.centrisNo).catch(() => {});
-        window.open('https://www.centris.ca/fr/propriete~a-vendre', '_blank');
+        window.open('https://www.centris.ca/fr/propriete~a-vendre', '_blank', 'noopener');
         toast(`No ${p.centrisNo} copié 📋 — collez-le dans la recherche Centris`, 'success');
     }
 }
@@ -2680,25 +2693,25 @@ function renderCentris() {
       <div class="card">
         <div class="card-title" style="margin-bottom:14px">💡 Accès rapide Centris</div>
         <div style="display:flex;flex-direction:column;gap:10px;">
-          <button class="btn btn-outline" onclick="window.open('https://www.centris.ca/fr/propriete~a-vendre','_blank')">
+          <button class="btn btn-outline" onclick="window.open('https://www.centris.ca/fr/propriete~a-vendre','_blank','noopener')">
             🏠 Toutes les propriétés à vendre
           </button>
-          <button class="btn btn-outline" onclick="window.open('https://www.centris.ca/fr/maison~a-vendre','_blank')">
+          <button class="btn btn-outline" onclick="window.open('https://www.centris.ca/fr/maison~a-vendre','_blank','noopener')">
             🏡 Maisons à vendre
           </button>
-          <button class="btn btn-outline" onclick="window.open('https://www.centris.ca/fr/condo-appartement~a-vendre','_blank')">
+          <button class="btn btn-outline" onclick="window.open('https://www.centris.ca/fr/condo-appartement~a-vendre','_blank','noopener')">
             🏢 Condos / Appartements
           </button>
-          <button class="btn btn-outline" onclick="window.open('https://www.centris.ca/fr/plex~a-vendre','_blank')">
+          <button class="btn btn-outline" onclick="window.open('https://www.centris.ca/fr/plex~a-vendre','_blank','noopener')">
             🏘️ Plex (Revenus)
           </button>
-          <button class="btn btn-outline" onclick="window.open('https://www.centris.ca/fr/terrain~a-vendre','_blank')">
+          <button class="btn btn-outline" onclick="window.open('https://www.centris.ca/fr/terrain~a-vendre','_blank','noopener')">
             🌿 Terrains
           </button>
-          <button class="btn btn-outline" onclick="window.open('https://www.centris.ca/fr/chalet-maison-de-campagne~a-vendre','_blank')">
+          <button class="btn btn-outline" onclick="window.open('https://www.centris.ca/fr/chalet-maison-de-campagne~a-vendre','_blank','noopener')">
             ⛺ Chalets / Récréatifs
           </button>
-          <button class="btn btn-outline" onclick="window.open('https://www.centris.ca/fr/immeuble-commercial~a-vendre','_blank')">
+          <button class="btn btn-outline" onclick="window.open('https://www.centris.ca/fr/immeuble-commercial~a-vendre','_blank','noopener')">
             🏬 Commercial
           </button>
         </div>
@@ -2741,7 +2754,7 @@ function searchCentris() {
     const preview = document.getElementById('centrisLinkPreview');
     if (preview) preview.textContent = url;
 
-    window.open(url, '_blank');
+    window.open(url, '_blank', 'noopener');
     toast('Centris ouvert — appliquez vos filtres de prix et chambres sur place', 'success');
 }
 
@@ -2750,7 +2763,7 @@ function openCentrisMap() {
     let url = `https://www.centris.ca/fr/propriete~a-vendre`;
     if (ville) url += `~${ville}`;
     url += '?view=Map';
-    window.open(url, '_blank');
+    window.open(url, '_blank', 'noopener');
 }
 
 // ── MESSAGERIE COURTIERS ──
@@ -2995,7 +3008,7 @@ function envoyerEmailCourtier() {
     const signature = `\n\n---\n${nom}\nJMC Courtier\n${tel}`;
     const mailto = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps + signature)}`;
 
-    window.open(mailto, '_blank');
+    window.open(mailto, '_blank', 'noopener');
     closeModal('modalEmail');
     toast('Client de messagerie ouvert ✅', 'success');
 }
@@ -3008,7 +3021,7 @@ function inviterCourtierWhatsApp() {
         `3️⃣ Entrez votre nom et cliquez "Rejoindre"\n\n` +
         `Vous serez connecté instantanément au canal des courtiers JMC. À bientôt !`
     );
-    window.open(`https://wa.me/?text=${msg}`, '_blank');
+    window.open(`https://wa.me/?text=${msg}`, '_blank', 'noopener');
 }
 
 function inviterCourtierEmail() {
@@ -3022,7 +3035,7 @@ function inviterCourtierEmail() {
         `Vous serez connecté instantanément à notre canal de discussion.\n\n` +
         `Au plaisir de collaborer avec vous !\n\nJean Morrely Cazeau\nJMC Courtier\n514-916-5407\ncazeauvendu@gmail.com\nhttps://cazeauvendu.com`
     );
-    window.open(`mailto:?subject=${sujet}&body=${corps}`, '_blank');
+    window.open(`mailto:?subject=${sujet}&body=${corps}`, '_blank', 'noopener');
 }
 
 // ── RAPPORT PDF ──
@@ -3071,7 +3084,7 @@ function generateReport() {
 
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url  = URL.createObjectURL(blob);
-    window.open(url, '_blank');
+    window.open(url, '_blank', 'noopener');
     setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
@@ -3312,9 +3325,9 @@ function getWarnings() {
         if (!dismissed.has(id)) warnings.push({ id, type, icon, title, detail, actionLabel, actionFn });
     };
 
-    // ── Mot de passe par défaut toujours actif
+    // ── Mot de passe par défaut toujours actif (aucun mot de passe personnalisé enregistré)
     const authUser = sessionStorage.getItem('jmc_user') || 'CourtierJMC';
-    if (AUTH_USERS[authUser] && getPassHash(authUser) === AUTH_USERS[authUser]) {
+    if (AUTH_USERS[authUser] && !localStorage.getItem('jmc_pass_' + authUser)) {
         add('pass_defaut', 'error', '🔐',
             'Mot de passe par défaut toujours actif',
             'Le mot de passe d\'origine est connu publiquement (code source). Changez-le maintenant.',
